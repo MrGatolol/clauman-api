@@ -1,0 +1,6 @@
+@ClaumanAPI_HostAddress = http://localhost:5296
+
+GET {{ClaumanAPI_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

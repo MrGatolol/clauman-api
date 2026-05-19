@@ -1,0 +1,320 @@
+using Microsoft.AspNetCore.Mvc;
+using Npgsql;
+using ClaumanAPI.Models;
+
+namespace ClaumanAPI.Controllers
+{
+    [Route("api/facturas-compra")]
+    [ApiController]
+    public class FacturasCompraController : ControllerBase
+    {
+        private readonly string _conexion;
+
+        public FacturasCompraController(IConfiguration config)
+        {
+            _conexion = config.GetConnectionString("ClaumanDB")!;
+        }
+
+        // GET /api/facturas-compra
+        [HttpGet]
+        public IActionResult ObtenerTodas()
+        {
+            var lista = new List<FacturaCompra>();
+
+            using var conexion = new NpgsqlConnection(_conexion);
+            conexion.Open();
+
+            var cmd = new NpgsqlCommand(@"
+                SELECT Id,
+                       TO_CHAR(Fecha, 'DD/MM/YYYY') AS Fecha,
+                       TipoDoc, NumeroDoc, ProveedorId, OrdenCompra, CondVenta,
+                       TotalNeto, Iva, Total, Estado,
+                       TO_CHAR(FechaRecepcion, 'DD/MM/YYYY') AS FechaRecepcion,
+                       TO_CHAR(Vencimiento, 'DD/MM/YYYY') AS Vencimiento,
+                       Usuario
+                FROM FacturasCompra
+                ORDER BY Id DESC", conexion);
+
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                lista.Add(new FacturaCompra
+                {
+                    Id             = reader.GetInt32(0),
+                    Fecha          = reader.GetString(1),
+                    TipoDoc        = reader.GetString(2),
+                    NumeroDoc      = reader.GetString(3),
+                    ProveedorId    = reader.GetInt32(4),
+                    OrdenCompra    = reader.GetString(5),
+                    CondVenta      = reader.GetString(6),
+                    TotalNeto      = reader.GetInt32(7),
+                    Iva            = reader.GetInt32(8),
+                    Total          = reader.GetInt32(9),
+                    Estado         = reader.GetString(10),
+                    FechaRecepcion = reader.IsDBNull(11) ? null : reader.GetString(11),
+                    Vencimiento    = reader.IsDBNull(12) ? null : reader.GetString(12),
+                    Usuario        = reader.GetString(13),
+                });
+            }
+            return Ok(lista);
+        }
+
+        // GET /api/facturas-compra/5
+        [HttpGet("{id}")]
+        public IActionResult ObtenerPorId(int id)
+        {
+            using var conexion = new NpgsqlConnection(_conexion);
+            conexion.Open();
+
+            var cmdCab = new NpgsqlCommand(@"
+                SELECT Id,
+                       TO_CHAR(Fecha, 'DD/MM/YYYY'),
+                       TipoDoc, NumeroDoc, ProveedorId, OrdenCompra, CondVenta,
+                       TotalNeto, Iva, Total, Estado,
+                       TO_CHAR(FechaRecepcion, 'DD/MM/YYYY'),
+                       TO_CHAR(Vencimiento, 'DD/MM/YYYY'),
+                       Usuario
+                FROM FacturasCompra WHERE Id = @Id", conexion);
+            cmdCab.Parameters.AddWithValue("@Id", id);
+
+            using var reader = cmdCab.ExecuteReader();
+            if (!reader.Read())
+                return NotFound(new { mensaje = $"Factura de compra {id} no encontrada." });
+
+            var f = new FacturaCompra
+            {
+                Id             = reader.GetInt32(0),
+                Fecha          = reader.GetString(1),
+                TipoDoc        = reader.GetString(2),
+                NumeroDoc      = reader.GetString(3),
+                ProveedorId    = reader.GetInt32(4),
+                OrdenCompra    = reader.GetString(5),
+                CondVenta      = reader.GetString(6),
+                TotalNeto      = reader.GetInt32(7),
+                Iva            = reader.GetInt32(8),
+                Total          = reader.GetInt32(9),
+                Estado         = reader.GetString(10),
+                FechaRecepcion = reader.IsDBNull(11) ? null : reader.GetString(11),
+                Vencimiento    = reader.IsDBNull(12) ? null : reader.GetString(12),
+                Usuario        = reader.GetString(13),
+            };
+            reader.Close();
+
+            var cmdDet = new NpgsqlCommand(@"
+                SELECT Id, FacturaCompraId, ProductoId, Codigo, Descripcion,
+                       Cantidad, PrecioNeto, PrecioMeson, PrecioMayor,
+                       (Cantidad * PrecioNeto) AS Subtotal
+                FROM FacturasCompraDetalle WHERE FacturaCompraId = @Id", conexion);
+            cmdDet.Parameters.AddWithValue("@Id", id);
+
+            using var rd = cmdDet.ExecuteReader();
+            while (rd.Read())
+            {
+                f.Detalle.Add(new FacturaCompraDetalle
+                {
+                    Id              = rd.GetInt32(0),
+                    FacturaCompraId = rd.GetInt32(1),
+                    ProductoId      = rd.IsDBNull(2) ? null : rd.GetInt32(2),
+                    Codigo          = rd.GetString(3),
+                    Descripcion     = rd.GetString(4),
+                    Cantidad        = rd.GetInt32(5),
+                    PrecioNeto      = rd.GetInt32(6),
+                    PrecioMeson     = rd.GetInt32(7),
+                    PrecioMayor     = rd.GetInt32(8),
+                    Subtotal        = rd.GetInt32(9),
+                });
+            }
+            return Ok(f);
+        }
+
+        // POST /api/facturas-compra
+        [HttpPost]
+        public IActionResult Crear([FromBody] FacturaCompra f)
+        {
+            if (f.Detalle.Count == 0)
+                return BadRequest(new { mensaje = "La factura debe tener al menos un producto." });
+            if (f.ProveedorId <= 0)
+                return BadRequest(new { mensaje = "Se requiere proveedor." });
+            if (string.IsNullOrWhiteSpace(f.NumeroDoc))
+                return BadRequest(new { mensaje = "Se requiere número de documento." });
+            if (f.CondVenta == "CREDITO" && string.IsNullOrWhiteSpace(f.Vencimiento))
+                return BadRequest(new { mensaje = "Las compras a crédito requieren fecha de vencimiento." });
+
+            using var conexion = new NpgsqlConnection(_conexion);
+            conexion.Open();
+            using var tx = conexion.BeginTransaction();
+
+            try
+            {
+                // Validar proveedor
+                var cmdProv = new NpgsqlCommand("SELECT COUNT(*) FROM Proveedores WHERE Id = @Id", conexion, tx);
+                cmdProv.Parameters.AddWithValue("@Id", f.ProveedorId);
+                if ((int)cmdProv.ExecuteScalar() == 0)
+                    throw new InvalidOperationException($"Proveedor {f.ProveedorId} no existe.");
+
+                var cmdCab = new NpgsqlCommand(@"
+                    INSERT INTO FacturasCompra
+                        (Fecha, TipoDoc, NumeroDoc, ProveedorId, OrdenCompra, CondVenta,
+                         TotalNeto, Iva, Total, Estado, Vencimiento, Usuario)
+                    VALUES
+                        (NOW(), @TipoDoc, @NumeroDoc, @ProveedorId, @OrdenCompra, @CondVenta,
+                         @TotalNeto, @Iva, @Total, 'VIGENTE', @Vencimiento, @Usuario)
+                    RETURNING Id;", conexion, tx);
+
+                cmdCab.Parameters.AddWithValue("@TipoDoc",     f.TipoDoc);
+                cmdCab.Parameters.AddWithValue("@NumeroDoc",   f.NumeroDoc);
+                cmdCab.Parameters.AddWithValue("@ProveedorId", f.ProveedorId);
+                cmdCab.Parameters.AddWithValue("@OrdenCompra", f.OrdenCompra ?? "");
+                cmdCab.Parameters.AddWithValue("@CondVenta",   f.CondVenta);
+                cmdCab.Parameters.AddWithValue("@TotalNeto",   f.TotalNeto);
+                cmdCab.Parameters.AddWithValue("@Iva",         f.Iva);
+                cmdCab.Parameters.AddWithValue("@Total",       f.Total);
+                cmdCab.Parameters.AddWithValue("@Usuario",     f.Usuario);
+                cmdCab.Parameters.AddWithValue("@Vencimiento",
+                    string.IsNullOrWhiteSpace(f.Vencimiento) ? DBNull.Value : (object)DateTime.Parse(f.Vencimiento));
+
+                f.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+
+                foreach (var item in f.Detalle)
+                {
+                    var cmdDet = new NpgsqlCommand(@"
+                        INSERT INTO FacturasCompraDetalle
+                            (FacturaCompraId, ProductoId, Codigo, Descripcion, Cantidad, PrecioNeto, PrecioMeson, PrecioMayor)
+                        VALUES
+                            (@FacturaCompraId, @ProductoId, @Codigo, @Descripcion, @Cantidad, @PrecioNeto, @PrecioMeson, @PrecioMayor)",
+                        conexion, tx);
+
+                    cmdDet.Parameters.AddWithValue("@FacturaCompraId", f.Id);
+                    cmdDet.Parameters.AddWithValue("@ProductoId",      (object?)item.ProductoId ?? DBNull.Value);
+                    cmdDet.Parameters.AddWithValue("@Codigo",          item.Codigo);
+                    cmdDet.Parameters.AddWithValue("@Descripcion",     item.Descripcion);
+                    cmdDet.Parameters.AddWithValue("@Cantidad",        item.Cantidad);
+                    cmdDet.Parameters.AddWithValue("@PrecioNeto",      item.PrecioNeto);
+                    cmdDet.Parameters.AddWithValue("@PrecioMeson",     item.PrecioMeson);
+                    cmdDet.Parameters.AddWithValue("@PrecioMayor",     item.PrecioMayor);
+                    cmdDet.ExecuteNonQuery();
+                }
+
+                tx.Commit();
+                return CreatedAtAction(nameof(ObtenerPorId), new { id = f.Id }, f);
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                return StatusCode(500, new { mensaje = "Error al guardar la factura de compra.", detalle = ex.Message });
+            }
+        }
+
+        // PUT /api/facturas-compra/5/recepcionar?bodega=VINA
+        // SUMA el stock al inventario y opcionalmente actualiza precios sugeridos.
+        // Esta es la operación clave del módulo: la compra entra a inventario.
+        [HttpPut("{id}/recepcionar")]
+        public IActionResult Recepcionar(int id, [FromQuery] string bodega = "VINA")
+        {
+            var bodegaCol = bodega.Equals("VALEMANA", StringComparison.OrdinalIgnoreCase) ? "StockVa" : "StockVina";
+
+            using var conexion = new NpgsqlConnection(_conexion);
+            conexion.Open();
+            using var tx = conexion.BeginTransaction();
+
+            try
+            {
+                // Verificar estado
+                var cmdEstado = new NpgsqlCommand(
+                    "SELECT Estado FROM FacturasCompra WHERE Id = @Id", conexion, tx);
+                cmdEstado.Parameters.AddWithValue("@Id", id);
+                var estado = cmdEstado.ExecuteScalar() as string;
+                if (estado == null)
+                    return NotFound(new { mensaje = $"Factura {id} no encontrada." });
+                if (estado != "VIGENTE")
+                    return BadRequest(new { mensaje = $"La factura ya está en estado '{estado}'." });
+
+                // Iterar cada item del detalle y sumar stock + actualizar precios
+                var cmdItems = new NpgsqlCommand(
+                    @"SELECT ProductoId, Cantidad, PrecioNeto, PrecioMeson, PrecioMayor
+                      FROM FacturasCompraDetalle WHERE FacturaCompraId = @Id",
+                    conexion, tx);
+                cmdItems.Parameters.AddWithValue("@Id", id);
+
+                var items = new List<(int? prodId, int cant, int pNeto, int pMeson, int pMayor)>();
+                using (var rd = cmdItems.ExecuteReader())
+                {
+                    while (rd.Read())
+                    {
+                        items.Add((
+                            rd.IsDBNull(0) ? null : rd.GetInt32(0),
+                            rd.GetInt32(1), rd.GetInt32(2), rd.GetInt32(3), rd.GetInt32(4)
+                        ));
+                    }
+                }
+
+                int actualizados = 0;
+                foreach (var (prodId, cant, pNeto, pMeson, pMayor) in items)
+                {
+                    if (prodId == null) continue;  // si no tiene producto vinculado, no se puede sumar stock
+
+                    var cmdStock = new NpgsqlCommand(
+                        $@"UPDATE Inventario SET
+                              {bodegaCol} = COALESCE({bodegaCol}, 0) + @Cant,
+                              CostoNeto   = @CostoNeto,
+                              PrecioMeson = CASE WHEN @PMeson > 0 THEN @PMeson ELSE PrecioMeson END,
+                              PrecioMayor = CASE WHEN @PMayor > 0 THEN @PMayor ELSE PrecioMayor END
+                           WHERE Id = @Id",
+                        conexion, tx);
+                    cmdStock.Parameters.AddWithValue("@Cant",      cant);
+                    cmdStock.Parameters.AddWithValue("@CostoNeto", pNeto);
+                    cmdStock.Parameters.AddWithValue("@PMeson",    pMeson);
+                    cmdStock.Parameters.AddWithValue("@PMayor",    pMayor);
+                    cmdStock.Parameters.AddWithValue("@Id",        prodId);
+                    actualizados += cmdStock.ExecuteNonQuery();
+                }
+
+                // Marcar la factura como recepcionada
+                var cmdUpd = new NpgsqlCommand(
+                    "UPDATE FacturasCompra SET Estado = 'RECEPCIONADA', FechaRecepcion = CURRENT_DATE WHERE Id = @Id",
+                    conexion, tx);
+                cmdUpd.Parameters.AddWithValue("@Id", id);
+                cmdUpd.ExecuteNonQuery();
+
+                tx.Commit();
+                return Ok(new { mensaje = $"Factura recepcionada. Se actualizó stock de {actualizados} producto(s).", productosActualizados = actualizados });
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                return StatusCode(500, new { mensaje = "Error al recepcionar.", detalle = ex.Message });
+            }
+        }
+
+        // PUT /api/facturas-compra/5/pagar
+        [HttpPut("{id}/pagar")]
+        public IActionResult Pagar(int id)
+        {
+            using var conexion = new NpgsqlConnection(_conexion);
+            conexion.Open();
+            var cmd = new NpgsqlCommand(
+                "UPDATE FacturasCompra SET Estado = 'PAGADA' WHERE Id = @Id AND Estado <> 'ANULADA'",
+                conexion);
+            cmd.Parameters.AddWithValue("@Id", id);
+            if (cmd.ExecuteNonQuery() == 0)
+                return NotFound(new { mensaje = $"Factura {id} no encontrada o ya está anulada." });
+            return NoContent();
+        }
+
+        // PUT /api/facturas-compra/5/anular
+        // Si está RECEPCIONADA, debería revertir el stock... pero por simplicidad solo marca el estado.
+        [HttpPut("{id}/anular")]
+        public IActionResult Anular(int id)
+        {
+            using var conexion = new NpgsqlConnection(_conexion);
+            conexion.Open();
+            var cmd = new NpgsqlCommand(
+                "UPDATE FacturasCompra SET Estado = 'ANULADA' WHERE Id = @Id",
+                conexion);
+            cmd.Parameters.AddWithValue("@Id", id);
+            if (cmd.ExecuteNonQuery() == 0)
+                return NotFound(new { mensaje = $"Factura {id} no encontrada." });
+            return NoContent();
+        }
+    }
+}
