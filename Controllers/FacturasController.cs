@@ -194,11 +194,12 @@ namespace ClaumanAPI.Controllers
                     INSERT INTO Facturas
                         (Numero, Folio, Fecha, Hora, ClienteId, CondVenta, OrdenCompra,
                          DescGlobal, TotalNeto, Iva, Total, Estado, Usuario, Vencimiento, Bodega)
+                    OUTPUT INSERTED.Id,
+                           FORMAT(INSERTED.Fecha, 'dd/MM/yyyy') AS Fecha,
+                           CONVERT(VARCHAR(8), INSERTED.Hora, 108) AS Hora
                     VALUES
                         (@Numero, @Folio, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @CondVenta, @OrdenCompra,
-                         @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Vencimiento, @Bodega)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                         @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Vencimiento, @Bodega)", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",      f.Numero);
                 cmdCab.Parameters.AddWithValue("@Folio",       f.Folio);
@@ -214,7 +215,13 @@ namespace ClaumanAPI.Controllers
                     string.IsNullOrWhiteSpace(f.Vencimiento) ? DBNull.Value : (object)DateTime.Parse(f.Vencimiento));
                 cmdCab.Parameters.AddWithValue("@Bodega",      bodega);
 
-                f.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+                using (var rd = cmdCab.ExecuteReader())
+                {
+                    rd.Read();
+                    f.Id    = rd.GetInt32(0);
+                    f.Fecha = rd.GetString(1);
+                    f.Hora  = rd.GetString(2);
+                }
 
                 foreach (var item in f.Detalle)
                 {

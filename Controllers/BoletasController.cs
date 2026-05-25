@@ -199,15 +199,18 @@ namespace ClaumanAPI.Controllers
                 boleta.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
                 // ---- 3) Insertar cabecera ----
+                // OUTPUT INSERTED nos devuelve Id + Fecha + Hora formateadas,
+                // así el cliente puede mostrar la boleta recién creada sin refetch.
                 var cmdCab = new SqlCommand(@"
                     INSERT INTO Boletas
                         (Numero, Fecha, Hora, ClienteId, MedioPago,
                          DescGlobal, TotalNeto, Iva, Total, Usuario, Anulada, Bodega)
+                    OUTPUT INSERTED.Id,
+                           FORMAT(INSERTED.Fecha, 'dd/MM/yyyy') AS Fecha,
+                           CONVERT(VARCHAR(8), INSERTED.Hora, 108) AS Hora
                     VALUES
                         (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @MedioPago,
-                         @DescGlobal, @TotalNeto, @Iva, @Total, @Usuario, 0, @Bodega)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                         @DescGlobal, @TotalNeto, @Iva, @Total, @Usuario, 0, @Bodega)", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",     boleta.Numero);
                 cmdCab.Parameters.AddWithValue("@ClienteId",  (object?)boleta.ClienteId ?? DBNull.Value);
@@ -219,7 +222,13 @@ namespace ClaumanAPI.Controllers
                 cmdCab.Parameters.AddWithValue("@Usuario",    boleta.Usuario);
                 cmdCab.Parameters.AddWithValue("@Bodega",     bodega);
 
-                boleta.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+                using (var rd = cmdCab.ExecuteReader())
+                {
+                    rd.Read();
+                    boleta.Id    = rd.GetInt32(0);
+                    boleta.Fecha = rd.GetString(1);
+                    boleta.Hora  = rd.GetString(2);
+                }
 
                 // ---- 4) Insertar detalle + descontar stock por cada item ----
                 foreach (var item in boleta.Detalle)

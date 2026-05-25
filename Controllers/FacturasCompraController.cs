@@ -274,11 +274,16 @@ namespace ClaumanAPI.Controllers
                     actualizados += cmdStock.ExecuteNonQuery();
                 }
 
-                // Marcar la factura como recepcionada
-                var cmdUpd = new SqlCommand(
-                    "UPDATE FacturasCompra SET Estado = 'RECEPCIONADA', FechaRecepcion = CAST(GETDATE() AS DATE) WHERE Id = @Id",
-                    conexion, tx);
-                cmdUpd.Parameters.AddWithValue("@Id", id);
+                // Marcar la factura como recepcionada y GUARDAR la bodega
+                // (sin esto, anular después no sabría dónde reversar)
+                var cmdUpd = new SqlCommand(@"
+                    UPDATE FacturasCompra
+                    SET Estado = 'RECEPCIONADA',
+                        FechaRecepcion = CAST(GETDATE() AS DATE),
+                        BodegaRecepcion = @Bodega
+                    WHERE Id = @Id", conexion, tx);
+                cmdUpd.Parameters.AddWithValue("@Id",     id);
+                cmdUpd.Parameters.AddWithValue("@Bodega", bodega.ToUpperInvariant());
                 cmdUpd.ExecuteNonQuery();
 
                 tx.Commit();
@@ -307,10 +312,11 @@ namespace ClaumanAPI.Controllers
             return NoContent();
         }
 
-        // PUT /api/facturas-compra/5/anular?bodega=VINA
-        // Si la factura ya fue RECEPCIONADA, reversa el stock que se sumó (descuenta
-        // de la bodega indicada). Por eso `bodega` es obligatoria si está RECEPCIONADA
-        // — el endpoint no tiene cómo saber dónde se recibió.
+        // PUT /api/facturas-compra/5/anular[?bodega=VINA]
+        // Si la factura ya fue RECEPCIONADA, reversa el stock automáticamente
+        // usando la BodegaRecepcion guardada al recepcionar. El parámetro `bodega`
+        // queda como override por si una factura recepcionada antes de esta versión
+        // tiene BodegaRecepcion en NULL (legacy data).
         [HttpPut("{id}/anular")]
         [RequireRol("ADMIN")]
         public IActionResult Anular(int id, [FromQuery] string? bodega = null)
@@ -321,21 +327,30 @@ namespace ClaumanAPI.Controllers
 
             try
             {
-                var cmdEstado = new SqlCommand(
-                    "SELECT Estado FROM FacturasCompra WHERE Id = @Id", conexion, tx);
-                cmdEstado.Parameters.AddWithValue("@Id", id);
-                var estado = cmdEstado.ExecuteScalar() as string;
-                if (estado == null)
-                    return NotFound(new { mensaje = $"Factura {id} no encontrada." });
+                var cmdGet = new SqlCommand(
+                    "SELECT Estado, BodegaRecepcion FROM FacturasCompra WHERE Id = @Id",
+                    conexion, tx);
+                cmdGet.Parameters.AddWithValue("@Id", id);
+                string? estado = null, bodegaRec = null;
+                using (var rd = cmdGet.ExecuteReader())
+                {
+                    if (!rd.Read())
+                        return NotFound(new { mensaje = $"Factura {id} no encontrada." });
+                    estado    = rd.GetString(0);
+                    bodegaRec = rd.IsDBNull(1) ? null : rd.GetString(1);
+                }
                 if (estado == "ANULADA")
                     return BadRequest(new { mensaje = "La factura ya estaba anulada." });
 
                 int revertidos = 0;
+                string? bodegaUsada = null;
 
                 // Si está RECEPCIONADA, hay stock que devolver
                 if (estado == "RECEPCIONADA")
                 {
-                    var bodegaCol = bodega?.ToUpperInvariant() switch
+                    // Prioridad: bodega del query (override) > BodegaRecepcion guardada
+                    var bodegaFinal = (bodega ?? bodegaRec)?.ToUpperInvariant();
+                    var bodegaCol = bodegaFinal switch
                     {
                         "VINA"     => "StockVina",
                         "VALEMANA" => "StockVa",
@@ -343,8 +358,10 @@ namespace ClaumanAPI.Controllers
                     };
                     if (bodegaCol == null)
                         return BadRequest(new {
-                            mensaje = "Esta factura ya fue recepcionada. Indica en qué bodega para reversar el stock (?bodega=VINA o ?bodega=VALEMANA)."
+                            mensaje = "Esta factura fue recepcionada pero no tiene bodega registrada (data legacy). " +
+                                      "Indica la bodega manualmente: ?bodega=VINA o ?bodega=VALEMANA."
                         });
+                    bodegaUsada = bodegaFinal;
 
                     var cmdRev = new SqlCommand($@"
                         UPDATE i
@@ -366,7 +383,7 @@ namespace ClaumanAPI.Controllers
                 tx.Commit();
                 return Ok(new {
                     mensaje = revertidos > 0
-                        ? $"Factura anulada. Se reversó stock de {revertidos} producto(s) de {bodega?.ToUpperInvariant()}."
+                        ? $"Factura anulada. Se reversó stock de {revertidos} producto(s) de {bodegaUsada}."
                         : "Factura anulada (no había stock que reversar)."
                 });
             }

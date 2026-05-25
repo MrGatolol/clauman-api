@@ -189,11 +189,12 @@ namespace ClaumanAPI.Controllers
                     INSERT INTO NotasVenta
                         (Numero, Fecha, Hora, ClienteId, ClienteRef, CondVenta, MedioPago,
                          DescGlobal, TotalNeto, Iva, Total, Estado, Usuario, Bodega)
+                    OUTPUT INSERTED.Id,
+                           FORMAT(INSERTED.Fecha, 'dd/MM/yyyy') AS Fecha,
+                           CONVERT(VARCHAR(8), INSERTED.Hora, 108) AS Hora
                     VALUES
                         (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @ClienteRef, @CondVenta, @MedioPago,
-                         @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Bodega)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                         @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Bodega)", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",     nv.Numero);
                 cmdCab.Parameters.AddWithValue("@ClienteId",  (object?)nv.ClienteId ?? DBNull.Value);
@@ -207,7 +208,13 @@ namespace ClaumanAPI.Controllers
                 cmdCab.Parameters.AddWithValue("@Usuario",    nv.Usuario);
                 cmdCab.Parameters.AddWithValue("@Bodega",     bodega);
 
-                nv.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+                using (var rd = cmdCab.ExecuteReader())
+                {
+                    rd.Read();
+                    nv.Id    = rd.GetInt32(0);
+                    nv.Fecha = rd.GetString(1);
+                    nv.Hora  = rd.GetString(2);
+                }
 
                 foreach (var item in nv.Detalle)
                 {
@@ -300,21 +307,116 @@ namespace ClaumanAPI.Controllers
             }
         }
 
-        // PUT /api/notas-venta/5/facturar  — marca como facturada (en sistemas reales generaría una boleta/factura)
+        // PUT /api/notas-venta/5/facturar
+        // Genera una factura REAL a partir de la nota de venta:
+        //  1. Copia cabecera (cliente, totales, bodega) y detalle a Facturas/FacturasDetalle.
+        //  2. Reserva Numero + Folio de Factura con bloqueo correlativo.
+        //  3. Marca la NV como 'FACTURADA' (NO mueve stock — ya se movió al crear la NV).
+        // Requiere que la NV tenga ClienteId (las facturas no pueden ser sin cliente).
         [HttpPut("{id}/facturar")]
         [RequirePermiso("ventas.crearFactura")]
         public IActionResult Facturar(int id)
         {
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new SqlCommand(
-                "UPDATE NotasVenta SET Estado = 'FACTURADA' WHERE Id = @Id AND Estado = 'VIGENTE'", conexion);
-            cmd.Parameters.AddWithValue("@Id", id);
+            using var tx = conexion.BeginTransaction();
+            try
+            {
+                // 1) Leer cabecera de la NV
+                var cmdNv = new SqlCommand(@"
+                    SELECT Estado, ClienteId, ClienteRef, CondVenta, DescGlobal, TotalNeto, Iva, Total, Usuario, Bodega
+                    FROM NotasVenta WHERE Id = @Id", conexion, tx);
+                cmdNv.Parameters.AddWithValue("@Id", id);
 
-            if (cmd.ExecuteNonQuery() == 0)
-                return NotFound(new { mensaje = $"Nota de venta {id} no encontrada o ya no está vigente." });
+                string? estado = null, condVenta = null, usuario = null, bodega = null, clienteRef = null;
+                int? clienteId = null;
+                int descGlobal = 0, totalNeto = 0, iva = 0, total = 0;
 
-            return NoContent();
+                using (var rd = cmdNv.ExecuteReader())
+                {
+                    if (!rd.Read())
+                        return NotFound(new { mensaje = $"Nota de venta {id} no encontrada." });
+                    estado     = rd.GetString(0);
+                    clienteId  = rd.IsDBNull(1) ? null : rd.GetInt32(1);
+                    clienteRef = rd.IsDBNull(2) ? "" : rd.GetString(2);
+                    condVenta  = rd.GetString(3);
+                    descGlobal = rd.GetInt32(4);
+                    totalNeto  = rd.GetInt32(5);
+                    iva        = rd.GetInt32(6);
+                    total      = rd.GetInt32(7);
+                    usuario    = rd.GetString(8);
+                    bodega     = rd.GetString(9);
+                }
+
+                if (estado != "VIGENTE")
+                    return BadRequest(new { mensaje = $"La nota ya está en estado '{estado}', no se puede facturar." });
+                if (!clienteId.HasValue)
+                    return BadRequest(new { mensaje = "La nota no tiene cliente asociado — una factura requiere cliente." });
+
+                // 2) Reservar próximo Numero + Folio de Factura
+                var cmdNum = new SqlCommand(
+                    "SELECT COALESCE(MAX(Numero), 999) + 1, COALESCE(MAX(Folio), 1999999) + 1 FROM Facturas WITH (TABLOCKX, HOLDLOCK)",
+                    conexion, tx);
+                int numero, folio;
+                using (var rd = cmdNum.ExecuteReader())
+                {
+                    rd.Read();
+                    numero = rd.GetInt32(0);
+                    folio  = rd.GetInt32(1);
+                }
+
+                // 3) Insertar cabecera de la factura
+                var cmdCab = new SqlCommand(@"
+                    INSERT INTO Facturas
+                        (Numero, Folio, Fecha, Hora, ClienteId, CondVenta, OrdenCompra,
+                         DescGlobal, TotalNeto, Iva, Total, Estado, Usuario, Vencimiento, Bodega)
+                    VALUES
+                        (@Numero, @Folio, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @CondVenta, '',
+                         @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, NULL, @Bodega)
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                cmdCab.Parameters.AddWithValue("@Numero",     numero);
+                cmdCab.Parameters.AddWithValue("@Folio",      folio);
+                cmdCab.Parameters.AddWithValue("@ClienteId",  clienteId.Value);
+                cmdCab.Parameters.AddWithValue("@CondVenta",  condVenta);
+                cmdCab.Parameters.AddWithValue("@DescGlobal", descGlobal);
+                cmdCab.Parameters.AddWithValue("@TotalNeto",  totalNeto);
+                cmdCab.Parameters.AddWithValue("@Iva",        iva);
+                cmdCab.Parameters.AddWithValue("@Total",      total);
+                cmdCab.Parameters.AddWithValue("@Usuario",    usuario);
+                cmdCab.Parameters.AddWithValue("@Bodega",     bodega);
+                int facturaId = Convert.ToInt32(cmdCab.ExecuteScalar());
+
+                // 4) Copiar detalle (sin tocar stock — ya se movió al crear la NV)
+                var cmdCopiarDet = new SqlCommand(@"
+                    INSERT INTO FacturasDetalle (FacturaId, ProductoId, Codigo, Descripcion, Cantidad, PrecioUnitario)
+                    SELECT @FacturaId, ProductoId, Codigo, Descripcion, Cantidad, PrecioUnitario
+                    FROM NotasVentaDetalle
+                    WHERE NotaVentaId = @NvId", conexion, tx);
+                cmdCopiarDet.Parameters.AddWithValue("@FacturaId", facturaId);
+                cmdCopiarDet.Parameters.AddWithValue("@NvId",      id);
+                int items = cmdCopiarDet.ExecuteNonQuery();
+
+                // 5) Marcar la NV como FACTURADA
+                var cmdUpd = new SqlCommand(
+                    "UPDATE NotasVenta SET Estado = 'FACTURADA' WHERE Id = @Id",
+                    conexion, tx);
+                cmdUpd.Parameters.AddWithValue("@Id", id);
+                cmdUpd.ExecuteNonQuery();
+
+                tx.Commit();
+                return Ok(new {
+                    mensaje    = $"Factura {numero} (folio {folio}) creada desde nota de venta {id}. {items} ítem(s) copiados.",
+                    facturaId,
+                    numero,
+                    folio
+                });
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                return StatusCode(500, new { mensaje = "Error al facturar la nota.", detalle = ex.Message });
+            }
         }
     }
 }

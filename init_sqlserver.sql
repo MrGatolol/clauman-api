@@ -294,9 +294,14 @@ CREATE TABLE FacturasCompra (
     Total          INT NOT NULL DEFAULT 0,
     Estado         NVARCHAR(20) NOT NULL DEFAULT 'VIGENTE',
     FechaRecepcion DATE,
+    BodegaRecepcion NVARCHAR(20),   -- 'VINA' o 'VALEMANA'; NULL si aún no recepcionada
     Vencimiento    DATE,
     Usuario        NVARCHAR(50) NOT NULL
 );
+
+-- Migración para BDs existentes que ya tienen la tabla sin esta columna
+IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE Name = 'BodegaRecepcion' AND Object_ID = Object_ID('FacturasCompra'))
+    ALTER TABLE FacturasCompra ADD BodegaRecepcion NVARCHAR(20);
 
 IF OBJECT_ID('FacturasCompraDetalle','U') IS NULL
 CREATE TABLE FacturasCompraDetalle (

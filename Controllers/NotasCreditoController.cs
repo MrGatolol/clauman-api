@@ -205,11 +205,12 @@ namespace ClaumanAPI.Controllers
                     INSERT INTO NotasCredito
                         (Numero, Fecha, Hora, TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                          ClienteId, Total, Motivo, Usuario, Bodega, Anulada)
+                    OUTPUT INSERTED.Id,
+                           FORMAT(INSERTED.Fecha, 'dd/MM/yyyy') AS Fecha,
+                           CONVERT(VARCHAR(8), INSERTED.Hora, 108) AS Hora
                     VALUES
                         (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @TipoDocOrigen, @DocOrigenId, @DocOrigenNumero,
-                         @ClienteId, @Total, @Motivo, @Usuario, @Bodega, 0)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                         @ClienteId, @Total, @Motivo, @Usuario, @Bodega, 0)", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",         nc.Numero);
                 cmdCab.Parameters.AddWithValue("@TipoDocOrigen",  nc.TipoDocOrigen);
@@ -221,7 +222,13 @@ namespace ClaumanAPI.Controllers
                 cmdCab.Parameters.AddWithValue("@Usuario",        nc.Usuario);
                 cmdCab.Parameters.AddWithValue("@Bodega",         nc.Bodega);
 
-                nc.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+                using (var rd = cmdCab.ExecuteReader())
+                {
+                    rd.Read();
+                    nc.Id    = rd.GetInt32(0);
+                    nc.Fecha = rd.GetString(1);
+                    nc.Hora  = rd.GetString(2);
+                }
                 nc.Total = totalReversado;
                 nc.Detalle = items;
 

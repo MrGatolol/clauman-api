@@ -155,11 +155,12 @@ namespace ClaumanAPI.Controllers
                     INSERT INTO Cotizaciones
                         (Numero, Fecha, Hora, ClienteId, ClienteRef, CondVenta,
                          DescGlobal, Total, Estado, Usuario, Vencimiento)
+                    OUTPUT INSERTED.Id,
+                           FORMAT(INSERTED.Fecha, 'dd/MM/yyyy') AS Fecha,
+                           CONVERT(VARCHAR(8), INSERTED.Hora, 108) AS Hora
                     VALUES
                         (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @ClienteRef, @CondVenta,
-                         @DescGlobal, @Total, 'VIGENTE', @Usuario, @Vencimiento)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                         @DescGlobal, @Total, 'VIGENTE', @Usuario, @Vencimiento)", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",      cot.Numero);
                 cmdCab.Parameters.AddWithValue("@ClienteId",   (object?)cot.ClienteId ?? DBNull.Value);
@@ -171,7 +172,13 @@ namespace ClaumanAPI.Controllers
                 cmdCab.Parameters.AddWithValue("@Vencimiento",
                     string.IsNullOrWhiteSpace(cot.Vencimiento) ? DBNull.Value : (object)DateTime.Parse(cot.Vencimiento));
 
-                cot.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+                using (var rd = cmdCab.ExecuteReader())
+                {
+                    rd.Read();
+                    cot.Id    = rd.GetInt32(0);
+                    cot.Fecha = rd.GetString(1);
+                    cot.Hora  = rd.GetString(2);
+                }
 
                 foreach (var item in cot.Detalle)
                 {

@@ -183,18 +183,25 @@ namespace ClaumanAPI.Controllers
                 var cmdCab = new SqlCommand(@"
                     INSERT INTO Traslados
                         (Numero, Fecha, Hora, BodegaOrigen, BodegaDest, Estado, Usuario)
+                    OUTPUT INSERTED.Id,
+                           FORMAT(INSERTED.Fecha, 'dd/MM/yyyy') AS Fecha,
+                           CONVERT(VARCHAR(8), INSERTED.Hora, 108) AS Hora
                     VALUES
                         (@Numero, GETDATE(), CAST(GETDATE() AS TIME),
-                         @BodegaOrigen, @BodegaDest, 'PENDIENTE', @Usuario)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                         @BodegaOrigen, @BodegaDest, 'PENDIENTE', @Usuario)", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",       traslado.Numero);
                 cmdCab.Parameters.AddWithValue("@BodegaOrigen", traslado.BodegaOrigen);
                 cmdCab.Parameters.AddWithValue("@BodegaDest",   traslado.BodegaDest);
                 cmdCab.Parameters.AddWithValue("@Usuario",      traslado.Usuario);
 
-                traslado.Id = Convert.ToInt32(cmdCab.ExecuteScalar());
+                using (var rd = cmdCab.ExecuteReader())
+                {
+                    rd.Read();
+                    traslado.Id    = rd.GetInt32(0);
+                    traslado.Fecha = rd.GetString(1);
+                    traslado.Hora  = rd.GetString(2);
+                }
 
                 // 4) Insertar detalle + DESCONTAR stock de la bodega origen
                 foreach (var item in traslado.Detalle)
