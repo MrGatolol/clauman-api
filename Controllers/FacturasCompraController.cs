@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 
 namespace ClaumanAPI.Controllers
@@ -21,16 +21,16 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<FacturaCompra>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY') AS Fecha,
+                       FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
                        TipoDoc, NumeroDoc, ProveedorId, OrdenCompra, CondVenta,
                        TotalNeto, Iva, Total, Estado,
-                       TO_CHAR(FechaRecepcion, 'DD/MM/YYYY') AS FechaRecepcion,
-                       TO_CHAR(Vencimiento, 'DD/MM/YYYY') AS Vencimiento,
+                       FORMAT(FechaRecepcion, 'dd/MM/yyyy') AS FechaRecepcion,
+                       FORMAT(Vencimiento, 'dd/MM/yyyy') AS Vencimiento,
                        Usuario
                 FROM FacturasCompra
                 ORDER BY Id DESC", conexion);
@@ -63,16 +63,16 @@ namespace ClaumanAPI.Controllers
         [HttpGet("{id}")]
         public IActionResult ObtenerPorId(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmdCab = new NpgsqlCommand(@"
+            var cmdCab = new SqlCommand(@"
                 SELECT Id,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY'),
+                       FORMAT(Fecha, 'dd/MM/yyyy'),
                        TipoDoc, NumeroDoc, ProveedorId, OrdenCompra, CondVenta,
                        TotalNeto, Iva, Total, Estado,
-                       TO_CHAR(FechaRecepcion, 'DD/MM/YYYY'),
-                       TO_CHAR(Vencimiento, 'DD/MM/YYYY'),
+                       FORMAT(FechaRecepcion, 'dd/MM/yyyy'),
+                       FORMAT(Vencimiento, 'dd/MM/yyyy'),
                        Usuario
                 FROM FacturasCompra WHERE Id = @Id", conexion);
             cmdCab.Parameters.AddWithValue("@Id", id);
@@ -100,7 +100,7 @@ namespace ClaumanAPI.Controllers
             };
             reader.Close();
 
-            var cmdDet = new NpgsqlCommand(@"
+            var cmdDet = new SqlCommand(@"
                 SELECT Id, FacturaCompraId, ProductoId, Codigo, Descripcion,
                        Cantidad, PrecioNeto, PrecioMeson, PrecioMayor,
                        (Cantidad * PrecioNeto) AS Subtotal
@@ -140,26 +140,27 @@ namespace ClaumanAPI.Controllers
             if (f.CondVenta == "CREDITO" && string.IsNullOrWhiteSpace(f.Vencimiento))
                 return BadRequest(new { mensaje = "Las compras a crédito requieren fecha de vencimiento." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
             try
             {
                 // Validar proveedor
-                var cmdProv = new NpgsqlCommand("SELECT COUNT(*) FROM Proveedores WHERE Id = @Id", conexion, tx);
+                var cmdProv = new SqlCommand("SELECT COUNT(*) FROM Proveedores WHERE Id = @Id", conexion, tx);
                 cmdProv.Parameters.AddWithValue("@Id", f.ProveedorId);
                 if ((int)cmdProv.ExecuteScalar() == 0)
                     throw new InvalidOperationException($"Proveedor {f.ProveedorId} no existe.");
 
-                var cmdCab = new NpgsqlCommand(@"
+                var cmdCab = new SqlCommand(@"
                     INSERT INTO FacturasCompra
                         (Fecha, TipoDoc, NumeroDoc, ProveedorId, OrdenCompra, CondVenta,
                          TotalNeto, Iva, Total, Estado, Vencimiento, Usuario)
                     VALUES
-                        (NOW(), @TipoDoc, @NumeroDoc, @ProveedorId, @OrdenCompra, @CondVenta,
+                        (GETDATE(), @TipoDoc, @NumeroDoc, @ProveedorId, @OrdenCompra, @CondVenta,
                          @TotalNeto, @Iva, @Total, 'VIGENTE', @Vencimiento, @Usuario)
-                    RETURNING Id;", conexion, tx);
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@TipoDoc",     f.TipoDoc);
                 cmdCab.Parameters.AddWithValue("@NumeroDoc",   f.NumeroDoc);
@@ -177,7 +178,7 @@ namespace ClaumanAPI.Controllers
 
                 foreach (var item in f.Detalle)
                 {
-                    var cmdDet = new NpgsqlCommand(@"
+                    var cmdDet = new SqlCommand(@"
                         INSERT INTO FacturasCompraDetalle
                             (FacturaCompraId, ProductoId, Codigo, Descripcion, Cantidad, PrecioNeto, PrecioMeson, PrecioMayor)
                         VALUES
@@ -213,14 +214,14 @@ namespace ClaumanAPI.Controllers
         {
             var bodegaCol = bodega.Equals("VALEMANA", StringComparison.OrdinalIgnoreCase) ? "StockVa" : "StockVina";
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
             try
             {
                 // Verificar estado
-                var cmdEstado = new NpgsqlCommand(
+                var cmdEstado = new SqlCommand(
                     "SELECT Estado FROM FacturasCompra WHERE Id = @Id", conexion, tx);
                 cmdEstado.Parameters.AddWithValue("@Id", id);
                 var estado = cmdEstado.ExecuteScalar() as string;
@@ -230,7 +231,7 @@ namespace ClaumanAPI.Controllers
                     return BadRequest(new { mensaje = $"La factura ya está en estado '{estado}'." });
 
                 // Iterar cada item del detalle y sumar stock + actualizar precios
-                var cmdItems = new NpgsqlCommand(
+                var cmdItems = new SqlCommand(
                     @"SELECT ProductoId, Cantidad, PrecioNeto, PrecioMeson, PrecioMayor
                       FROM FacturasCompraDetalle WHERE FacturaCompraId = @Id",
                     conexion, tx);
@@ -253,7 +254,7 @@ namespace ClaumanAPI.Controllers
                 {
                     if (prodId == null) continue;  // si no tiene producto vinculado, no se puede sumar stock
 
-                    var cmdStock = new NpgsqlCommand(
+                    var cmdStock = new SqlCommand(
                         $@"UPDATE Inventario SET
                               {bodegaCol} = COALESCE({bodegaCol}, 0) + @Cant,
                               CostoNeto   = @CostoNeto,
@@ -270,8 +271,8 @@ namespace ClaumanAPI.Controllers
                 }
 
                 // Marcar la factura como recepcionada
-                var cmdUpd = new NpgsqlCommand(
-                    "UPDATE FacturasCompra SET Estado = 'RECEPCIONADA', FechaRecepcion = CURRENT_DATE WHERE Id = @Id",
+                var cmdUpd = new SqlCommand(
+                    "UPDATE FacturasCompra SET Estado = 'RECEPCIONADA', FechaRecepcion = CAST(GETDATE() AS DATE) WHERE Id = @Id",
                     conexion, tx);
                 cmdUpd.Parameters.AddWithValue("@Id", id);
                 cmdUpd.ExecuteNonQuery();
@@ -290,9 +291,9 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}/pagar")]
         public IActionResult Pagar(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "UPDATE FacturasCompra SET Estado = 'PAGADA' WHERE Id = @Id AND Estado <> 'ANULADA'",
                 conexion);
             cmd.Parameters.AddWithValue("@Id", id);
@@ -306,9 +307,9 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}/anular")]
         public IActionResult Anular(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "UPDATE FacturasCompra SET Estado = 'ANULADA' WHERE Id = @Id",
                 conexion);
             cmd.Parameters.AddWithValue("@Id", id);

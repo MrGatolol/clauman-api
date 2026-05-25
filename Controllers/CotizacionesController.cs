@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
 
@@ -22,16 +22,16 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<Cotizacion>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY') AS Fecha,
-                       TO_CHAR(Hora, 'HH24:MI:SS')  AS Hora,
+                       FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
+                       FORMAT(Hora, 'HH:mm:ss')  AS Hora,
                        ClienteId, ClienteRef, CondVenta,
                        DescGlobal, Total, Estado, Usuario,
-                       TO_CHAR(Vencimiento, 'DD/MM/YYYY') AS Vencimiento
+                       FORMAT(Vencimiento, 'dd/MM/yyyy') AS Vencimiento
                 FROM Cotizaciones
                 ORDER BY Id DESC", conexion);
 
@@ -61,16 +61,16 @@ namespace ClaumanAPI.Controllers
         [HttpGet("{id}")]
         public IActionResult ObtenerPorId(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmdCab = new NpgsqlCommand(@"
+            var cmdCab = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY'),
-                       TO_CHAR(Hora, 'HH24:MI:SS'),
+                       FORMAT(Fecha, 'dd/MM/yyyy'),
+                       FORMAT(Hora, 'HH:mm:ss'),
                        ClienteId, ClienteRef, CondVenta,
                        DescGlobal, Total, Estado, Usuario,
-                       TO_CHAR(Vencimiento, 'DD/MM/YYYY')
+                       FORMAT(Vencimiento, 'dd/MM/yyyy')
                 FROM Cotizaciones WHERE Id = @Id", conexion);
             cmdCab.Parameters.AddWithValue("@Id", id);
 
@@ -95,7 +95,7 @@ namespace ClaumanAPI.Controllers
             };
             reader.Close();
 
-            var cmdDet = new NpgsqlCommand(@"
+            var cmdDet = new SqlCommand(@"
                 SELECT Id, CotizacionId, ProductoId, Codigo, Descripcion,
                        Cantidad, PrecioUnitario, (Cantidad * PrecioUnitario) AS Subtotal
                 FROM CotizacionesDetalle WHERE CotizacionId = @Id", conexion);
@@ -127,26 +127,27 @@ namespace ClaumanAPI.Controllers
             if (cot.Detalle.Count == 0)
                 return BadRequest(new { mensaje = "La cotización debe tener al menos un producto." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
             try
             {
                 // Próximo número con bloqueo exclusivo (evita race conditions con varios cajeros)
-                var cmdNum = new NpgsqlCommand(
+                var cmdNum = new SqlCommand(
                     "SELECT COALESCE(MAX(Numero), 32559) + 1 FROM Cotizaciones ",
                     conexion, tx);
                 cot.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
-                var cmdCab = new NpgsqlCommand(@"
+                var cmdCab = new SqlCommand(@"
                     INSERT INTO Cotizaciones
                         (Numero, Fecha, Hora, ClienteId, ClienteRef, CondVenta,
                          DescGlobal, Total, Estado, Usuario, Vencimiento)
                     VALUES
-                        (@Numero, NOW(), CURRENT_TIME, @ClienteId, @ClienteRef, @CondVenta,
+                        (@Numero, GETDATE(), CURRENT_TIME, @ClienteId, @ClienteRef, @CondVenta,
                          @DescGlobal, @Total, 'VIGENTE', @Usuario, @Vencimiento)
-                    RETURNING Id;", conexion, tx);
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",      cot.Numero);
                 cmdCab.Parameters.AddWithValue("@ClienteId",   (object?)cot.ClienteId ?? DBNull.Value);
@@ -162,7 +163,7 @@ namespace ClaumanAPI.Controllers
 
                 foreach (var item in cot.Detalle)
                 {
-                    var cmdDet = new NpgsqlCommand(@"
+                    var cmdDet = new SqlCommand(@"
                         INSERT INTO CotizacionesDetalle
                             (CotizacionId, ProductoId, Codigo, Descripcion, Cantidad, PrecioUnitario)
                         VALUES
@@ -199,9 +200,9 @@ namespace ClaumanAPI.Controllers
             if (!validos.Contains(nuevoEstado))
                 return BadRequest(new { mensaje = $"Estado inválido. Debe ser uno de: {string.Join(", ", validos)}." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new NpgsqlCommand("UPDATE Cotizaciones SET Estado = @Estado WHERE Id = @Id", conexion);
+            var cmd = new SqlCommand("UPDATE Cotizaciones SET Estado = @Estado WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Estado", nuevoEstado);
             cmd.Parameters.AddWithValue("@Id", id);
 

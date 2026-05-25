@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 
 namespace ClaumanAPI.Controllers
@@ -21,10 +21,10 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<Proveedor>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id, Rut, RazonSocial, Direccion, Ciudad, Telefono,
                        EmailCorp, Ejecutivo, EmailCot,
                        Banco, CtaCte, RutTitular, EmailPagos
@@ -62,19 +62,20 @@ namespace ClaumanAPI.Controllers
             if (string.IsNullOrWhiteSpace(prov.Rut) || string.IsNullOrWhiteSpace(prov.RazonSocial))
                 return BadRequest(new { mensaje = "RUT y Razón Social son requeridos." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             try
             {
-                var cmd = new NpgsqlCommand(@"
+                var cmd = new SqlCommand(@"
                     INSERT INTO Proveedores
                         (Rut, RazonSocial, Direccion, Ciudad, Telefono, EmailCorp,
                          Ejecutivo, EmailCot, Banco, CtaCte, RutTitular, EmailPagos)
                     VALUES
                         (@Rut, @RazonSocial, @Direccion, @Ciudad, @Telefono, @EmailCorp,
                          @Ejecutivo, @EmailCot, @Banco, @CtaCte, @RutTitular, @EmailPagos)
-                    RETURNING Id;", conexion);
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion);
 
                 AgregarParametros(cmd, prov);
                 prov.Id = Convert.ToInt32(cmd.ExecuteScalar());
@@ -94,10 +95,10 @@ namespace ClaumanAPI.Controllers
             if (string.IsNullOrWhiteSpace(prov.Rut) || string.IsNullOrWhiteSpace(prov.RazonSocial))
                 return BadRequest(new { mensaje = "RUT y Razón Social son requeridos." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 UPDATE Proveedores SET
                     Rut         = @Rut,
                     RazonSocial = @RazonSocial,
@@ -127,10 +128,10 @@ namespace ClaumanAPI.Controllers
         [HttpDelete("{id}")]
         public IActionResult Eliminar(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand("DELETE FROM Proveedores WHERE Id = @Id", conexion);
+            var cmd = new SqlCommand("DELETE FROM Proveedores WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Id", id);
 
             int filas = cmd.ExecuteNonQuery();
@@ -140,8 +141,8 @@ namespace ClaumanAPI.Controllers
             return NoContent();
         }
 
-        // Helper: agrega los 12 parámetros a un NpgsqlCommand de INSERT/UPDATE
-        private static void AgregarParametros(NpgsqlCommand cmd, Proveedor p)
+        // Helper: agrega los 12 parámetros a un SqlCommand de INSERT/UPDATE
+        private static void AgregarParametros(SqlCommand cmd, Proveedor p)
         {
             cmd.Parameters.AddWithValue("@Rut",         p.Rut);
             cmd.Parameters.AddWithValue("@RazonSocial", p.RazonSocial);

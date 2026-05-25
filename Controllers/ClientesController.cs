@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 
 namespace ClaumanAPI.Controllers
@@ -21,10 +21,10 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<Cliente>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "SELECT Id, Rut, Nombre, Direccion, Comuna, Ciudad, Giro, Telefono, EmailCorp, EmailCot FROM Clientes ORDER BY Nombre",
                 conexion
             );
@@ -54,13 +54,13 @@ namespace ClaumanAPI.Controllers
         [HttpPost]
         public IActionResult Crear([FromBody] Cliente cliente)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 @"INSERT INTO Clientes (Rut, Nombre, Direccion, Comuna, Ciudad, Giro, Telefono, EmailCorp, EmailCot)
-                  VALUES (@Rut, @Nombre, @Direccion, @Comuna, @Ciudad, @Giro, @Telefono, @EmailCorp, @EmailCot)
-                  RETURNING Id",
+                  VALUES (@Rut, @Nombre, @Direccion, @Comuna, @Ciudad, @Giro, @Telefono, @EmailCorp, @EmailCot);
+                  SELECT CAST(SCOPE_IDENTITY() AS INT);",
                 conexion
             );
 
@@ -82,10 +82,10 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}")]
         public IActionResult Editar(int id, [FromBody] Cliente cliente)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 @"UPDATE Clientes
                   SET Rut=@Rut, Nombre=@Nombre, Direccion=@Direccion, Comuna=@Comuna,
                       Ciudad=@Ciudad, Giro=@Giro, Telefono=@Telefono, EmailCorp=@EmailCorp, EmailCot=@EmailCot
@@ -115,10 +115,10 @@ namespace ClaumanAPI.Controllers
         [HttpDelete("{id}")]
         public IActionResult Eliminar(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand("DELETE FROM Clientes WHERE Id = @Id", conexion);
+            var cmd = new SqlCommand("DELETE FROM Clientes WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Id", id);
 
             int filas = cmd.ExecuteNonQuery();

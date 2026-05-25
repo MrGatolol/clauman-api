@@ -19,9 +19,21 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("ClaumanCors", policy =>
     {
-        policy.WithOrigins(origenes)
-              .AllowAnyHeader()
-              .AllowAnyMethod();
+        // En Development permitimos cualquier origen — esto habilita demos
+        // por VS Code Port Forwarding / ngrok / cloudflare tunnel sin tener
+        // que hardcodear la URL del túnel (cambia cada vez que se reinicia).
+        if (builder.Environment.IsDevelopment())
+        {
+            policy.SetIsOriginAllowed(_ => true)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(origenes)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
     });
 });
 

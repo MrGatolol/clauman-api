@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
 
@@ -24,19 +24,19 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<Ajuste>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
                 SELECT Id,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY HH24:MI:SS') AS Fecha,
+                       FORMAT(Fecha, 'dd/MM/yyyy HH:mm:ss') AS Fecha,
                        Local, Tipo, ProductoId, Codigo, Descripcion, Motivo, Ajuste, Usuario
                 FROM Ajustes
                 WHERE (CAST(@Desde AS DATE) IS NULL OR CAST(Fecha AS DATE) >= CAST(@Desde AS DATE))
                   AND (CAST(@Hasta AS DATE) IS NULL OR CAST(Fecha AS DATE) <= CAST(@Hasta AS DATE))
                 ORDER BY Fecha DESC";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Desde", (object?)desde ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta", (object?)hasta ?? DBNull.Value);
 
@@ -72,17 +72,18 @@ namespace ClaumanAPI.Controllers
             if (string.IsNullOrWhiteSpace(a.Usuario))
                 return BadRequest(new { mensaje = "Se requiere usuario." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
             try
             {
                 // 1) Insertar el ajuste
-                var cmd = new NpgsqlCommand(@"
+                var cmd = new SqlCommand(@"
                     INSERT INTO Ajustes (Fecha, Local, Tipo, ProductoId, Codigo, Descripcion, Motivo, Ajuste, Usuario)
-                    VALUES (NOW(), @Local, @Tipo, @ProductoId, @Codigo, @Descripcion, @Motivo, @Ajuste, @Usuario)
-                    RETURNING Id;", conexion, tx);
+                    VALUES (GETDATE(), @Local, @Tipo, @ProductoId, @Codigo, @Descripcion, @Motivo, @Ajuste, @Usuario)
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
 
                 cmd.Parameters.AddWithValue("@Local",       a.Local);
                 cmd.Parameters.AddWithValue("@Tipo",        a.Tipo);
@@ -107,7 +108,7 @@ namespace ClaumanAPI.Controllers
                     else // TODAS — repartir mitad y mitad (simplificación)
                         updateCols = "StockVina = COALESCE(StockVina, 0) + @Ajuste, StockVa = COALESCE(StockVa, 0) + @Ajuste";
 
-                    var cmdStock = new NpgsqlCommand(
+                    var cmdStock = new SqlCommand(
                         $"UPDATE Inventario SET {updateCols} WHERE Id = @Id", conexion, tx);
                     cmdStock.Parameters.AddWithValue("@Ajuste", a.AjusteCantidad);
                     cmdStock.Parameters.AddWithValue("@Id",     a.ProductoId.Value);

@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using System.Security.Cryptography;
 using System.Text;
 using ClaumanAPI.Models;
@@ -24,11 +24,11 @@ namespace ClaumanAPI.Controllers
             if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
                 return BadRequest(new { mensaje = "Usuario y contraseña son requeridos." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             // Buscar usuario activo
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id, Nombre, Username, PasswordHash, Rol, Activo
                 FROM Usuarios
                 WHERE Username = @Username", conexion);
@@ -61,9 +61,9 @@ namespace ClaumanAPI.Controllers
             bool credencialesOk = encontrado && activo && TimingSafeEquals(hashBd, hashEntrada);
 
             // Registrar en bitácora SIEMPRE (exitoso o no)
-            var cmdLog = new NpgsqlCommand(@"
+            var cmdLog = new SqlCommand(@"
                 INSERT INTO AccesosLog (UsuarioId, Username, Fecha, Exito)
-                VALUES (@UsuarioId, @Username, NOW(), @Exito)", conexion);
+                VALUES (@UsuarioId, @Username, GETDATE(), @Exito)", conexion);
             cmdLog.Parameters.AddWithValue("@UsuarioId", encontrado ? (object)id : DBNull.Value);
             cmdLog.Parameters.AddWithValue("@Username",  req.Username);
             cmdLog.Parameters.AddWithValue("@Exito",     credencialesOk);
@@ -77,7 +77,7 @@ namespace ClaumanAPI.Controllers
             // el AuthMiddleware lo valida contra la BD antes de dejar pasar.
             var token = Guid.NewGuid().ToString("N");
             var expira = DateTime.UtcNow.AddHours(8);
-            var cmdToken = new NpgsqlCommand(@"
+            var cmdToken = new SqlCommand(@"
                 INSERT INTO SesionTokens (Token, UsuarioId, ExpiraEn)
                 VALUES (@Token, @UsuarioId, @ExpiraEn)", conexion);
             cmdToken.Parameters.AddWithValue("@Token", token);
@@ -104,9 +104,9 @@ namespace ClaumanAPI.Controllers
             var token = auth.ToString().Replace("Bearer ", "").Trim();
             if (string.IsNullOrEmpty(token)) return NoContent();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new NpgsqlCommand("DELETE FROM SesionTokens WHERE Token = @Token", conexion);
+            var cmd = new SqlCommand("DELETE FROM SesionTokens WHERE Token = @Token", conexion);
             cmd.Parameters.AddWithValue("@Token", token);
             cmd.ExecuteNonQuery();
             return NoContent();
@@ -121,10 +121,10 @@ namespace ClaumanAPI.Controllers
                 !body.TryGetValue("passwordNueva", out var nueva))
                 return BadRequest(new { mensaje = "Faltan campos requeridos." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand("SELECT PasswordHash FROM Usuarios WHERE Username = @U", conexion);
+            var cmd = new SqlCommand("SELECT PasswordHash FROM Usuarios WHERE Username = @U", conexion);
             cmd.Parameters.AddWithValue("@U", username);
             var hashActual = cmd.ExecuteScalar() as string;
 
@@ -138,13 +138,13 @@ namespace ClaumanAPI.Controllers
 
             // Actualizar password + invalidar TODOS los tokens del usuario
             // (si alguien tenía la contraseña vieja con un token abierto, queda fuera)
-            var cmdUpd = new NpgsqlCommand(
+            var cmdUpd = new SqlCommand(
                 "UPDATE Usuarios SET PasswordHash = @H WHERE Username = @U", conexion);
             cmdUpd.Parameters.AddWithValue("@H", HashSha256(nueva));
             cmdUpd.Parameters.AddWithValue("@U", username);
             cmdUpd.ExecuteNonQuery();
 
-            var cmdDelTokens = new NpgsqlCommand(@"
+            var cmdDelTokens = new SqlCommand(@"
                 DELETE FROM SesionTokens
                 WHERE UsuarioId IN (SELECT Id FROM Usuarios WHERE Username = @U)", conexion);
             cmdDelTokens.Parameters.AddWithValue("@U", username);

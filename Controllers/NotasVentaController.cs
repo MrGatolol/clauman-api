@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
 
@@ -22,13 +22,13 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<NotaVenta>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY') AS Fecha,
-                       TO_CHAR(Hora, 'HH24:MI:SS')  AS Hora,
+                       FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
+                       FORMAT(Hora, 'HH:mm:ss')  AS Hora,
                        ClienteId, ClienteRef, CondVenta, MedioPago,
                        DescGlobal, TotalNeto, Iva, Total, Estado, Usuario
                 FROM NotasVenta
@@ -62,13 +62,13 @@ namespace ClaumanAPI.Controllers
         [HttpGet("{id}")]
         public IActionResult ObtenerPorId(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmdCab = new NpgsqlCommand(@"
+            var cmdCab = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY'),
-                       TO_CHAR(Hora, 'HH24:MI:SS'),
+                       FORMAT(Fecha, 'dd/MM/yyyy'),
+                       FORMAT(Hora, 'HH:mm:ss'),
                        ClienteId, ClienteRef, CondVenta, MedioPago,
                        DescGlobal, TotalNeto, Iva, Total, Estado, Usuario
                 FROM NotasVenta WHERE Id = @Id", conexion);
@@ -97,7 +97,7 @@ namespace ClaumanAPI.Controllers
             };
             reader.Close();
 
-            var cmdDet = new NpgsqlCommand(@"
+            var cmdDet = new SqlCommand(@"
                 SELECT Id, NotaVentaId, ProductoId, Codigo, Descripcion,
                        Cantidad, PrecioUnitario, (Cantidad * PrecioUnitario) AS Subtotal
                 FROM NotasVentaDetalle WHERE NotaVentaId = @Id", conexion);
@@ -148,7 +148,7 @@ namespace ClaumanAPI.Controllers
 
             string colStock = bodega == "VALEMANA" ? "StockVa" : "StockVina";
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
@@ -158,7 +158,7 @@ namespace ClaumanAPI.Controllers
                 foreach (var item in nv.Detalle)
                 {
                     if (item.ProductoId == null) continue;
-                    var cmdStockActual = new NpgsqlCommand(
+                    var cmdStockActual = new SqlCommand(
                         $"SELECT COALESCE({colStock}, 0) FROM Inventario WHERE Id = @Id", conexion, tx);
                     cmdStockActual.Parameters.AddWithValue("@Id", item.ProductoId.Value);
                     var disponible = (int)(cmdStockActual.ExecuteScalar() ?? 0);
@@ -170,19 +170,20 @@ namespace ClaumanAPI.Controllers
                 }
 
                 // Número correlativo con bloqueo exclusivo
-                var cmdNum = new NpgsqlCommand(
+                var cmdNum = new SqlCommand(
                     "SELECT COALESCE(MAX(Numero), 39599) + 1 FROM NotasVenta ",
                     conexion, tx);
                 nv.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
-                var cmdCab = new NpgsqlCommand(@"
+                var cmdCab = new SqlCommand(@"
                     INSERT INTO NotasVenta
                         (Numero, Fecha, Hora, ClienteId, ClienteRef, CondVenta, MedioPago,
                          DescGlobal, TotalNeto, Iva, Total, Estado, Usuario, Bodega)
                     VALUES
-                        (@Numero, NOW(), CURRENT_TIME, @ClienteId, @ClienteRef, @CondVenta, @MedioPago,
+                        (@Numero, GETDATE(), CURRENT_TIME, @ClienteId, @ClienteRef, @CondVenta, @MedioPago,
                          @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Bodega)
-                    RETURNING Id;", conexion, tx);
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",     nv.Numero);
                 cmdCab.Parameters.AddWithValue("@ClienteId",  (object?)nv.ClienteId ?? DBNull.Value);
@@ -200,7 +201,7 @@ namespace ClaumanAPI.Controllers
 
                 foreach (var item in nv.Detalle)
                 {
-                    var cmdDet = new NpgsqlCommand(@"
+                    var cmdDet = new SqlCommand(@"
                         INSERT INTO NotasVentaDetalle
                             (NotaVentaId, ProductoId, Codigo, Descripcion, Cantidad, PrecioUnitario)
                         VALUES
@@ -217,7 +218,7 @@ namespace ClaumanAPI.Controllers
 
                     if (item.ProductoId != null)
                     {
-                        var cmdStock = new NpgsqlCommand(
+                        var cmdStock = new SqlCommand(
                             $"UPDATE Inventario SET {colStock} = COALESCE({colStock}, 0) - @Cant WHERE Id = @Id",
                             conexion, tx);
                         cmdStock.Parameters.AddWithValue("@Cant", item.Cantidad);
@@ -241,13 +242,13 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}/anular")]
         public IActionResult Anular(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
             try
             {
-                var cmdGet = new NpgsqlCommand(
+                var cmdGet = new SqlCommand(
                     "SELECT Estado, COALESCE(Bodega, 'VINA') FROM NotasVenta WHERE Id = @Id",
                     conexion, tx);
                 cmdGet.Parameters.AddWithValue("@Id", id);
@@ -264,7 +265,7 @@ namespace ClaumanAPI.Controllers
 
                 string colStock = bodega.Equals("VALEMANA", StringComparison.OrdinalIgnoreCase) ? "StockVa" : "StockVina";
 
-                var cmdDevolver = new NpgsqlCommand($@"
+                var cmdDevolver = new SqlCommand($@"
                     UPDATE i
                     SET i.{colStock} = COALESCE(i.{colStock}, 0) + d.Cantidad
                     FROM Inventario i
@@ -273,7 +274,7 @@ namespace ClaumanAPI.Controllers
                 cmdDevolver.Parameters.AddWithValue("@Id", id);
                 int devueltos = cmdDevolver.ExecuteNonQuery();
 
-                var cmdAnular = new NpgsqlCommand(
+                var cmdAnular = new SqlCommand(
                     "UPDATE NotasVenta SET Estado = 'ANULADA' WHERE Id = @Id", conexion, tx);
                 cmdAnular.Parameters.AddWithValue("@Id", id);
                 cmdAnular.ExecuteNonQuery();
@@ -292,9 +293,9 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}/facturar")]
         public IActionResult Facturar(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "UPDATE NotasVenta SET Estado = 'FACTURADA' WHERE Id = @Id AND Estado = 'VIGENTE'", conexion);
             cmd.Parameters.AddWithValue("@Id", id);
 

@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
 
@@ -24,7 +24,7 @@ namespace ClaumanAPI.Controllers
             var lista = new List<PreviewCambioPrecio>();
             decimal factor = 1 + (req.Porcentaje / 100m);
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
@@ -36,10 +36,10 @@ namespace ClaumanAPI.Controllers
                        COALESCE(i.PrecioMayor, 0)  AS PrecioMayor
                 FROM Inventario i
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
-                WHERE (@CategoriaId::int IS NULL OR i.CategoriaId = @CategoriaId::int)
+                WHERE (CAST(@CategoriaId AS INT) IS NULL OR i.CategoriaId = CAST(@CategoriaId AS INT))
                 ORDER BY i.Descripcion";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@CategoriaId", (object?)req.CategoriaId ?? DBNull.Value);
 
             using var reader = cmd.ExecuteReader();
@@ -77,7 +77,7 @@ namespace ClaumanAPI.Controllers
 
             decimal factor = 1 + (req.Porcentaje / 100m);
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
@@ -94,9 +94,9 @@ namespace ClaumanAPI.Controllers
                 var sql = $@"
                     UPDATE Inventario
                     SET {set}
-                    WHERE (@CategoriaId::int IS NULL OR CategoriaId = @CategoriaId::int)";
+                    WHERE (CAST(@CategoriaId AS INT) IS NULL OR CategoriaId = CAST(@CategoriaId AS INT))";
 
-                var cmd = new NpgsqlCommand(sql, conexion, tx);
+                var cmd = new SqlCommand(sql, conexion, tx);
                 cmd.Parameters.AddWithValue("@Factor",      factor);
                 cmd.Parameters.AddWithValue("@CategoriaId", (object?)req.CategoriaId ?? DBNull.Value);
                 int afectados = cmd.ExecuteNonQuery();

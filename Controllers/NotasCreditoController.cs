@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
 
@@ -21,13 +21,13 @@ namespace ClaumanAPI.Controllers
         public IActionResult ObtenerTodas()
         {
             var lista = new List<NotaCredito>();
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY') AS Fecha,
-                       TO_CHAR(Hora, 'HH24:MI:SS') AS Hora,
+                       FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
+                       FORMAT(Hora, 'HH:mm:ss') AS Hora,
                        TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                        ClienteId, Total, Motivo, Usuario, Bodega, Anulada
                 FROM NotasCredito
@@ -60,13 +60,13 @@ namespace ClaumanAPI.Controllers
         [HttpGet("{id}")]
         public IActionResult ObtenerPorId(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmdCab = new NpgsqlCommand(@"
+            var cmdCab = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY'),
-                       TO_CHAR(Hora, 'HH24:MI:SS'),
+                       FORMAT(Fecha, 'dd/MM/yyyy'),
+                       FORMAT(Hora, 'HH:mm:ss'),
                        TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                        ClienteId, Total, Motivo, Usuario, Bodega, Anulada
                 FROM NotasCredito WHERE Id = @Id", conexion);
@@ -93,7 +93,7 @@ namespace ClaumanAPI.Controllers
             };
             rd.Close();
 
-            var cmdDet = new NpgsqlCommand(@"
+            var cmdDet = new SqlCommand(@"
                 SELECT Id, NotaCreditoId, ProductoId, Codigo, Descripcion,
                        Cantidad, PrecioUnitario, (Cantidad * PrecioUnitario) AS Subtotal
                 FROM NotasCreditoDetalle WHERE NotaCreditoId = @Id", conexion);
@@ -136,12 +136,12 @@ namespace ClaumanAPI.Controllers
             // Mapeo: tabla de cabecera, tabla detalle, columna FK, columna estado
             var (tablaDoc, tablaDet, colFk, columnaEstado, valorAnulada) = nc.TipoDocOrigen switch
             {
-                "BOLETA"     => ("Boletas",    "BoletasDetalle",    "BoletaId",    "Anulada", "TRUE"),
+                "BOLETA"     => ("Boletas",    "BoletasDetalle",    "BoletaId",    "Anulada", "1"),
                 "FACTURA"    => ("Facturas",   "FacturasDetalle",   "FacturaId",   "Estado",  "'ANULADA'"),
                 _            => ("NotasVenta", "NotasVentaDetalle", "NotaVentaId", "Estado",  "'ANULADA'"),
             };
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
@@ -149,9 +149,9 @@ namespace ClaumanAPI.Controllers
             {
                 // 1. Verificar que el doc origen exista y NO esté ya anulado
                 string condicionVigente = nc.TipoDocOrigen == "BOLETA"
-                    ? "Anulada = FALSE"
+                    ? "Anulada = 0"
                     : "Estado <> 'ANULADA'";
-                var cmdCheck = new NpgsqlCommand(
+                var cmdCheck = new SqlCommand(
                     $"SELECT Numero, COALESCE(Bodega, 'VINA') FROM {tablaDoc} WHERE Id = @Id AND {condicionVigente}",
                     conexion, tx);
                 cmdCheck.Parameters.AddWithValue("@Id", nc.DocOrigenId);
@@ -171,7 +171,7 @@ namespace ClaumanAPI.Controllers
                 // 2. Cargar los items del doc origen (son los que devolveremos)
                 var items = new List<NotaCreditoDetalle>();
                 int totalReversado = 0;
-                var cmdItems = new NpgsqlCommand(
+                var cmdItems = new SqlCommand(
                     $"SELECT ProductoId, Codigo, Descripcion, Cantidad, PrecioUnitario FROM {tablaDet} WHERE {colFk} = @Id",
                     conexion, tx);
                 cmdItems.Parameters.AddWithValue("@Id", nc.DocOrigenId);
@@ -195,20 +195,21 @@ namespace ClaumanAPI.Controllers
                     return BadRequest(new { mensaje = "El documento origen no tiene items para reversar." });
 
                 // 3. Reservar número correlativo de NC con bloqueo
-                var cmdNum = new NpgsqlCommand(
+                var cmdNum = new SqlCommand(
                     "SELECT COALESCE(MAX(Numero), 999) + 1 FROM NotasCredito ",
                     conexion, tx);
                 nc.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
                 // 4. Insertar cabecera de NC
-                var cmdCab = new NpgsqlCommand(@"
+                var cmdCab = new SqlCommand(@"
                     INSERT INTO NotasCredito
                         (Numero, Fecha, Hora, TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                          ClienteId, Total, Motivo, Usuario, Bodega, Anulada)
                     VALUES
-                        (@Numero, NOW(), CURRENT_TIME, @TipoDocOrigen, @DocOrigenId, @DocOrigenNumero,
+                        (@Numero, GETDATE(), CURRENT_TIME, @TipoDocOrigen, @DocOrigenId, @DocOrigenNumero,
                          @ClienteId, @Total, @Motivo, @Usuario, @Bodega, 0)
-                    RETURNING Id;", conexion, tx);
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",         nc.Numero);
                 cmdCab.Parameters.AddWithValue("@TipoDocOrigen",  nc.TipoDocOrigen);
@@ -227,7 +228,7 @@ namespace ClaumanAPI.Controllers
                 // 5. Insertar detalle + devolver stock por cada item
                 foreach (var item in items)
                 {
-                    var cmdDet = new NpgsqlCommand(@"
+                    var cmdDet = new SqlCommand(@"
                         INSERT INTO NotasCreditoDetalle
                             (NotaCreditoId, ProductoId, Codigo, Descripcion, Cantidad, PrecioUnitario)
                         VALUES
@@ -243,7 +244,7 @@ namespace ClaumanAPI.Controllers
 
                     if (item.ProductoId != null)
                     {
-                        var cmdStock = new NpgsqlCommand(
+                        var cmdStock = new SqlCommand(
                             $"UPDATE Inventario SET {colStock} = COALESCE({colStock}, 0) + @Cant WHERE Id = @Id",
                             conexion, tx);
                         cmdStock.Parameters.AddWithValue("@Cant", item.Cantidad);
@@ -253,7 +254,7 @@ namespace ClaumanAPI.Controllers
                 }
 
                 // 6. Marcar el doc origen como ANULADA
-                var cmdAnular = new NpgsqlCommand(
+                var cmdAnular = new SqlCommand(
                     $"UPDATE {tablaDoc} SET {columnaEstado} = {valorAnulada} WHERE Id = @Id",
                     conexion, tx);
                 cmdAnular.Parameters.AddWithValue("@Id", nc.DocOrigenId);

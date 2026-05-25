@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 
 namespace ClaumanAPI.Controllers
@@ -21,13 +21,13 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<Traslado>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY') AS Fecha,
-                       TO_CHAR(Hora, 'HH24:MI:SS') AS Hora,
+                       FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
+                       FORMAT(Hora, 'HH:mm:ss') AS Hora,
                        BodegaOrigen, BodegaDest, Estado, Usuario
                 FROM Traslados
                 ORDER BY Id DESC", conexion);
@@ -55,13 +55,13 @@ namespace ClaumanAPI.Controllers
         [HttpGet("{id}")]
         public IActionResult ObtenerPorId(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmdCab = new NpgsqlCommand(@"
+            var cmdCab = new SqlCommand(@"
                 SELECT Id, Numero,
-                       TO_CHAR(Fecha, 'DD/MM/YYYY'),
-                       TO_CHAR(Hora, 'HH24:MI:SS'),
+                       FORMAT(Fecha, 'dd/MM/yyyy'),
+                       FORMAT(Hora, 'HH:mm:ss'),
                        BodegaOrigen, BodegaDest, Estado, Usuario
                 FROM Traslados WHERE Id = @Id", conexion);
             cmdCab.Parameters.AddWithValue("@Id", id);
@@ -83,7 +83,7 @@ namespace ClaumanAPI.Controllers
             };
             reader.Close();
 
-            var cmdDet = new NpgsqlCommand(@"
+            var cmdDet = new SqlCommand(@"
                 SELECT Id, TrasladoId, ProductoId, Codigo, Descripcion, Cantidad
                 FROM TrasladosDetalle WHERE TrasladoId = @Id", conexion);
             cmdDet.Parameters.AddWithValue("@Id", id);
@@ -115,24 +115,25 @@ namespace ClaumanAPI.Controllers
             if (traslado.BodegaOrigen == traslado.BodegaDest)
                 return BadRequest(new { mensaje = "La bodega origen y destino no pueden ser iguales." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
             try
             {
-                var cmdNum = new NpgsqlCommand(
+                var cmdNum = new SqlCommand(
                     "SELECT COALESCE(MAX(Numero), 8399) + 1 FROM Traslados",
                     conexion, tx);
                 traslado.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
-                var cmdCab = new NpgsqlCommand(@"
+                var cmdCab = new SqlCommand(@"
                     INSERT INTO Traslados
                         (Numero, Fecha, Hora, BodegaOrigen, BodegaDest, Estado, Usuario)
                     VALUES
-                        (@Numero, NOW(), CURRENT_TIME,
+                        (@Numero, GETDATE(), CURRENT_TIME,
                          @BodegaOrigen, @BodegaDest, 'PENDIENTE', @Usuario)
-                    RETURNING Id;", conexion, tx);
+                    ;
+                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
 
                 cmdCab.Parameters.AddWithValue("@Numero",       traslado.Numero);
                 cmdCab.Parameters.AddWithValue("@BodegaOrigen", traslado.BodegaOrigen);
@@ -143,7 +144,7 @@ namespace ClaumanAPI.Controllers
 
                 foreach (var item in traslado.Detalle)
                 {
-                    var cmdDet = new NpgsqlCommand(@"
+                    var cmdDet = new SqlCommand(@"
                         INSERT INTO TrasladosDetalle
                             (TrasladoId, ProductoId, Codigo, Descripcion, Cantidad)
                         VALUES
@@ -172,10 +173,10 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}/completar")]
         public IActionResult Completar(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "UPDATE Traslados SET Estado = 'COMPLETADO' WHERE Id = @Id AND Estado = 'PENDIENTE'",
                 conexion);
             cmd.Parameters.AddWithValue("@Id", id);
@@ -191,10 +192,10 @@ namespace ClaumanAPI.Controllers
         [HttpPut("{id}/anular")]
         public IActionResult Anular(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "UPDATE Traslados SET Estado = 'ANULADO' WHERE Id = @Id AND Estado = 'PENDIENTE'",
                 conexion);
             cmd.Parameters.AddWithValue("@Id", id);

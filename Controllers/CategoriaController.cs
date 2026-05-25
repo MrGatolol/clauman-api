@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 
 namespace ClaumanAPI.Controllers
@@ -21,10 +21,10 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<Categoria>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand("SELECT Id, Nombre FROM Categorias ORDER BY Nombre", conexion);
+            var cmd = new SqlCommand("SELECT Id, Nombre FROM Categorias ORDER BY Nombre", conexion);
             using var reader = cmd.ExecuteReader();
 
             while (reader.Read())
@@ -37,12 +37,12 @@ namespace ClaumanAPI.Controllers
         [HttpPost]
         public IActionResult Crear([FromBody] Categoria categoria)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             // Postgres usa RETURNING en vez de SELECT SCOPE_IDENTITY()
-            var cmd = new NpgsqlCommand(
-                "INSERT INTO Categorias (Nombre) VALUES (@Nombre) RETURNING Id",
+            var cmd = new SqlCommand(
+                "INSERT INTO Categorias (Nombre) VALUES (@Nombre); SELECT CAST(SCOPE_IDENTITY() AS INT);",
                 conexion
             );
             cmd.Parameters.AddWithValue("@Nombre", categoria.Nombre.ToUpper());
@@ -55,10 +55,10 @@ namespace ClaumanAPI.Controllers
         [HttpDelete("{id}")]
         public IActionResult Eliminar(int id)
         {
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new NpgsqlCommand("DELETE FROM Categorias WHERE Id = @Id", conexion);
+            var cmd = new SqlCommand("DELETE FROM Categorias WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Id", id);
 
             int filas = cmd.ExecuteNonQuery();

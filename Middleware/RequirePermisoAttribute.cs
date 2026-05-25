@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using System.Text.Json;
 
 namespace ClaumanAPI.Middleware
@@ -42,10 +42,10 @@ namespace ClaumanAPI.Middleware
             }
 
             var config = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            await using var conexion = new NpgsqlConnection(config.GetConnectionString("ClaumanDB")!);
+            await using var conexion = new SqlConnection(config.GetConnectionString("ClaumanDB")!);
             await conexion.OpenAsync();
 
-            var cmd = new NpgsqlCommand("SELECT Rol FROM Usuarios WHERE Id = @Id", conexion);
+            var cmd = new SqlCommand("SELECT Rol FROM Usuarios WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Id", usuarioId);
             var rol = (await cmd.ExecuteScalarAsync()) as string ?? "";
 
@@ -82,11 +82,11 @@ namespace ClaumanAPI.Middleware
 
             // Resolver connection string desde DI
             var config = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var conexion = new NpgsqlConnection(config.GetConnectionString("ClaumanDB")!);
+            var conexion = new SqlConnection(config.GetConnectionString("ClaumanDB")!);
             await conexion.OpenAsync();
 
             // Leer rol + permisos
-            var cmd = new NpgsqlCommand(
+            var cmd = new SqlCommand(
                 "SELECT Rol, COALESCE(Permisos, '') FROM Usuarios WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Id", usuarioId);
 

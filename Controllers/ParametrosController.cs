@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
 
@@ -22,9 +22,9 @@ namespace ClaumanAPI.Controllers
         {
             var dict = new Dictionary<string, string>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new NpgsqlCommand("SELECT Clave, Valor FROM Parametros", conexion);
+            var cmd = new SqlCommand("SELECT Clave, Valor FROM Parametros", conexion);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
                 dict[reader.GetString(0)] = reader.GetString(1);
@@ -41,7 +41,7 @@ namespace ClaumanAPI.Controllers
             if (cambios.Count == 0)
                 return BadRequest(new { mensaje = "No se enviaron cambios." });
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
             using var tx = conexion.BeginTransaction();
 
@@ -50,7 +50,7 @@ namespace ClaumanAPI.Controllers
                 foreach (var kv in cambios)
                 {
                     // UPSERT: si existe actualiza, si no inserta
-                    var cmd = new NpgsqlCommand(@"
+                    var cmd = new SqlCommand(@"
                         IF EXISTS (SELECT 1 FROM Parametros WHERE Clave = @Clave)
                             UPDATE Parametros SET Valor = @Valor WHERE Clave = @Clave
                         ELSE

@@ -1,4 +1,4 @@
-using Npgsql;
+using Microsoft.Data.SqlClient;
 
 namespace ClaumanAPI.Middleware
 {
@@ -56,9 +56,9 @@ namespace ClaumanAPI.Middleware
             }
 
             // Validar contra BD
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             await conexion.OpenAsync();
-            var cmd = new NpgsqlCommand(@"
+            var cmd = new SqlCommand(@"
                 SELECT UsuarioId, ExpiraEn FROM SesionTokens WHERE Token = @Token", conexion);
             cmd.Parameters.AddWithValue("@Token", token);
 
@@ -82,7 +82,7 @@ namespace ClaumanAPI.Middleware
             if (expira < DateTime.UtcNow)
             {
                 // Limpiar el token vencido
-                var cmdDel = new NpgsqlCommand("DELETE FROM SesionTokens WHERE Token = @T", conexion);
+                var cmdDel = new SqlCommand("DELETE FROM SesionTokens WHERE Token = @T", conexion);
                 cmdDel.Parameters.AddWithValue("@T", token);
                 await cmdDel.ExecuteNonQueryAsync();
                 await ResponderNoAutorizado(ctx, "Tu sesión expiró. Vuelve a iniciar sesión.");
@@ -90,8 +90,8 @@ namespace ClaumanAPI.Middleware
             }
 
             // Refrescar UltimoUso (sliding session — extiende cada uso por 8h más)
-            var cmdRefresh = new NpgsqlCommand(
-                "UPDATE SesionTokens SET UltimoUso = NOW(), ExpiraEn = @E WHERE Token = @T",
+            var cmdRefresh = new SqlCommand(
+                "UPDATE SesionTokens SET UltimoUso = GETDATE(), ExpiraEn = @E WHERE Token = @T",
                 conexion);
             cmdRefresh.Parameters.AddWithValue("@T", token);
             cmdRefresh.Parameters.AddWithValue("@E", DateTime.UtcNow.AddHours(8));

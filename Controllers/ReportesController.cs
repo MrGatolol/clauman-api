@@ -1,5 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
-using Npgsql;
+using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
 using System.Globalization;
 
@@ -27,7 +27,7 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteInventarioItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
@@ -41,10 +41,10 @@ namespace ClaumanAPI.Controllers
                 FROM Inventario i
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
                 WHERE (COALESCE(i.StockVina, 0) + COALESCE(i.StockVa, 0)) > 0
-                  AND (@Categoria::text IS NULL OR c.Nombre = @Categoria::text)
+                  AND (CAST(@Categoria AS NVARCHAR(MAX)) IS NULL OR c.Nombre = CAST(@Categoria AS NVARCHAR(MAX)))
                 ORDER BY i.Descripcion";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Categoria",
                 string.IsNullOrWhiteSpace(categoria) ? DBNull.Value : (object)categoria);
 
@@ -75,7 +75,7 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteRankingItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
@@ -85,14 +85,14 @@ namespace ClaumanAPI.Controllers
                        CAST(AVG(CAST(d.PrecioUnitario AS DECIMAL(12,2))) AS INT) AS PrecioPromedio
                 FROM BoletasDetalle d
                 INNER JOIN Boletas b ON b.Id = d.BoletaId
-                WHERE b.Anulada = FALSE
-                  AND (@Desde::timestamp IS NULL OR b.Fecha >= @Desde)
-                  AND (@Hasta::timestamp IS NULL OR b.Fecha <= @Hasta)
+                WHERE b.Anulada = 0
+                  AND (CAST(@Desde AS DATETIME2) IS NULL OR b.Fecha >= @Desde)
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR b.Fecha <= @Hasta)
                 GROUP BY d.Codigo
                 ORDER BY SUM(d.Cantidad) DESC
-                LIMIT 50";
+                OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Desde", (object?)desde ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta", (object?)hasta ?? DBNull.Value);
 
@@ -122,7 +122,7 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteVentaCategoria>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
@@ -132,13 +132,13 @@ namespace ClaumanAPI.Controllers
                 INNER JOIN Boletas b ON b.Id = d.BoletaId
                 LEFT JOIN Inventario i ON i.Id = d.ProductoId
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
-                WHERE b.Anulada = FALSE
-                  AND (@Desde::timestamp IS NULL OR b.Fecha >= @Desde)
-                  AND (@Hasta::timestamp IS NULL OR b.Fecha <= @Hasta)
+                WHERE b.Anulada = 0
+                  AND (CAST(@Desde AS DATETIME2) IS NULL OR b.Fecha >= @Desde)
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR b.Fecha <= @Hasta)
                 GROUP BY c.Nombre
                 ORDER BY SUM(d.Subtotal) DESC";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Desde", (object?)desde ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta", (object?)hasta ?? DBNull.Value);
 
@@ -162,7 +162,7 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteBajoStockItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
@@ -179,7 +179,7 @@ namespace ClaumanAPI.Controllers
                 WHERE (COALESCE(i.StockVina, 0) + COALESCE(i.StockVa, 0)) < @Umbral
                 ORDER BY (COALESCE(i.StockVina, 0) + COALESCE(i.StockVa, 0)) ASC, i.Descripcion";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Umbral", umbral);
 
             using var reader = cmd.ExecuteReader();
@@ -208,7 +208,7 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteRankingItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
@@ -219,13 +219,13 @@ namespace ClaumanAPI.Controllers
                 FROM CotizacionesDetalle d
                 INNER JOIN Cotizaciones c ON c.Id = d.CotizacionId
                 WHERE c.Estado <> 'RECHAZADA'
-                  AND (@Desde::timestamp IS NULL OR c.Fecha >= @Desde)
-                  AND (@Hasta::timestamp IS NULL OR c.Fecha <= @Hasta)
+                  AND (CAST(@Desde AS DATETIME2) IS NULL OR c.Fecha >= @Desde)
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR c.Fecha <= @Hasta)
                 GROUP BY d.Codigo
                 ORDER BY SUM(d.Cantidad) DESC
-                LIMIT 50";
+                OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Desde", (object?)desde ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta", (object?)hasta ?? DBNull.Value);
 
@@ -253,32 +253,32 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteBitacoraItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
                 SELECT 'BOLETA' AS Tipo, b.Numero,
-                       TO_CHAR(b.Fecha, 'DD/MM/YYYY') AS Fecha,
-                       TO_CHAR(b.Hora, 'HH24:MI:SS')  AS Hora,
+                       FORMAT(b.Fecha, 'dd/MM/yyyy') AS Fecha,
+                       FORMAT(b.Hora, 'HH:mm:ss')  AS Hora,
                        b.MedioPago, b.Total, b.Usuario,
-                       CASE WHEN b.Anulada = TRUE THEN 'ANULADA' ELSE 'VIGENTE' END AS Estado
+                       CASE WHEN b.Anulada = 1 THEN 'ANULADA' ELSE 'VIGENTE' END AS Estado
                 FROM Boletas b
-                WHERE (@Desde::timestamp IS NULL OR b.Fecha >= @Desde)
-                  AND (@Hasta::timestamp IS NULL OR b.Fecha <= @Hasta)
+                WHERE (CAST(@Desde AS DATETIME2) IS NULL OR b.Fecha >= @Desde)
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR b.Fecha <= @Hasta)
 
                 UNION ALL
 
                 SELECT 'N.VENTA' AS Tipo, n.Numero,
-                       TO_CHAR(n.Fecha, 'DD/MM/YYYY') AS Fecha,
-                       TO_CHAR(n.Hora, 'HH24:MI:SS')  AS Hora,
+                       FORMAT(n.Fecha, 'dd/MM/yyyy') AS Fecha,
+                       FORMAT(n.Hora, 'HH:mm:ss')  AS Hora,
                        n.MedioPago, n.Total, n.Usuario, n.Estado
                 FROM NotasVenta n
-                WHERE (@Desde::timestamp IS NULL OR n.Fecha >= @Desde)
-                  AND (@Hasta::timestamp IS NULL OR n.Fecha <= @Hasta)
+                WHERE (CAST(@Desde AS DATETIME2) IS NULL OR n.Fecha >= @Desde)
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR n.Fecha <= @Hasta)
 
                 ORDER BY Fecha DESC, Hora DESC";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Desde", (object?)desde ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta", (object?)hasta ?? DBNull.Value);
 
@@ -314,24 +314,24 @@ namespace ClaumanAPI.Controllers
             var colBodega = direccion.Equals("egreso", StringComparison.OrdinalIgnoreCase)
                 ? "BodegaOrigen" : "BodegaDest";
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = $@"
                 SELECT t.Numero,
-                       TO_CHAR(t.Fecha, 'DD/MM/YYYY') AS Fecha,
+                       FORMAT(t.Fecha, 'dd/MM/yyyy') AS Fecha,
                        t.BodegaOrigen, t.BodegaDest,
                        d.Codigo, d.Descripcion, d.Cantidad,
                        t.Usuario, t.Estado
                 FROM TrasladosDetalle d
                 INNER JOIN Traslados t ON t.Id = d.TrasladoId
                 WHERE t.Estado = 'COMPLETADO'
-                  AND (@Bodega::text IS NULL OR t.{colBodega} = @Bodega::text)
-                  AND (@Desde::timestamp IS NULL OR t.Fecha >= @Desde::timestamp)
-                  AND (@Hasta::timestamp IS NULL OR t.Fecha <= @Hasta::timestamp)
+                  AND (CAST(@Bodega AS NVARCHAR(MAX)) IS NULL OR t.{colBodega} = CAST(@Bodega AS NVARCHAR(MAX)))
+                  AND (CAST(@Desde AS DATETIME2) IS NULL OR t.Fecha >= CAST(@Desde AS DATETIME2))
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR t.Fecha <= CAST(@Hasta AS DATETIME2))
                 ORDER BY t.Fecha DESC, t.Numero DESC";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Bodega", (object?)bodega ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Desde",  (object?)desde  ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta",  (object?)hasta  ?? DBNull.Value);
@@ -366,34 +366,34 @@ namespace ClaumanAPI.Controllers
                 Fecha = DateTime.Today.ToString("dd/MM/yyyy"),
             };
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             // Una sola query con UNION ALL para obtener los 4 contadores y los 3 totales
             var sql = @"
                 SELECT 'BOLETAS' AS Tipo, COUNT(*) AS Cant, COALESCE(SUM(Total), 0) AS Tot
                 FROM Boletas
-                WHERE CAST(Fecha AS DATE) = CURRENT_DATE AND Anulada = FALSE
+                WHERE CAST(Fecha AS DATE) = CAST(GETDATE() AS DATE) AND Anulada = 0
 
                 UNION ALL
 
                 SELECT 'NOTAS', COUNT(*), COALESCE(SUM(Total), 0)
                 FROM NotasVenta
-                WHERE CAST(Fecha AS DATE) = CURRENT_DATE AND Estado <> 'ANULADA'
+                WHERE CAST(Fecha AS DATE) = CAST(GETDATE() AS DATE) AND Estado <> 'ANULADA'
 
                 UNION ALL
 
                 SELECT 'FACTURAS', COUNT(*), COALESCE(SUM(Total), 0)
                 FROM Facturas
-                WHERE CAST(Fecha AS DATE) = CURRENT_DATE AND Estado <> 'ANULADA'
+                WHERE CAST(Fecha AS DATE) = CAST(GETDATE() AS DATE) AND Estado <> 'ANULADA'
 
                 UNION ALL
 
                 SELECT 'COTIZACIONES', COUNT(*), 0
                 FROM Cotizaciones
-                WHERE CAST(Fecha AS DATE) = CURRENT_DATE";
+                WHERE CAST(Fecha AS DATE) = CAST(GETDATE() AS DATE)";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -421,11 +421,11 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteProductoCompradoItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
-                SELECT TO_CHAR(f.Fecha, 'DD/MM/YYYY') AS Fecha,
+                SELECT FORMAT(f.Fecha, 'dd/MM/yyyy') AS Fecha,
                        f.TipoDoc, f.NumeroDoc,
                        p.RazonSocial AS Proveedor,
                        d.Codigo, d.Descripcion, d.Cantidad, d.PrecioNeto,
@@ -435,12 +435,12 @@ namespace ClaumanAPI.Controllers
                 INNER JOIN FacturasCompra  f ON f.Id = d.FacturaCompraId
                 INNER JOIN Proveedores     p ON p.Id = f.ProveedorId
                 WHERE f.Estado <> 'ANULADA'
-                  AND (@Desde::timestamp IS NULL OR f.Fecha >= @Desde::timestamp)
-                  AND (@Hasta::timestamp IS NULL OR f.Fecha <= @Hasta::timestamp)
-                  AND (@ProveedorId::int IS NULL OR f.ProveedorId = @ProveedorId::int)
+                  AND (CAST(@Desde AS DATETIME2) IS NULL OR f.Fecha >= CAST(@Desde AS DATETIME2))
+                  AND (CAST(@Hasta AS DATETIME2) IS NULL OR f.Fecha <= CAST(@Hasta AS DATETIME2))
+                  AND (CAST(@ProveedorId AS INT) IS NULL OR f.ProveedorId = CAST(@ProveedorId AS INT))
                 ORDER BY f.Fecha DESC, f.Id DESC";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Desde",       (object?)desde       ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@Hasta",       (object?)hasta       ?? DBNull.Value);
             cmd.Parameters.AddWithValue("@ProveedorId", (object?)proveedorId ?? DBNull.Value);
@@ -481,7 +481,7 @@ namespace ClaumanAPI.Controllers
                 Hasta = fechaHasta.ToString("dd/MM/yyyy"),
             };
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             // 1) Totales por medio de pago — unimos boletas + notas + facturas
@@ -490,7 +490,7 @@ namespace ClaumanAPI.Controllers
                 FROM (
                     SELECT MedioPago, Total
                     FROM Boletas
-                    WHERE Anulada = FALSE AND Fecha BETWEEN @Desde AND @Hasta
+                    WHERE Anulada = 0 AND Fecha BETWEEN @Desde AND @Hasta
 
                     UNION ALL
 
@@ -507,7 +507,7 @@ namespace ClaumanAPI.Controllers
                 GROUP BY MedioPago
                 ORDER BY SUM(Total) DESC";
 
-            var cmd1 = new NpgsqlCommand(sqlMedios, conexion);
+            var cmd1 = new SqlCommand(sqlMedios, conexion);
             cmd1.Parameters.AddWithValue("@Desde", fechaDesde);
             cmd1.Parameters.AddWithValue("@Hasta", fechaHasta);
             using (var reader = cmd1.ExecuteReader())
@@ -527,7 +527,7 @@ namespace ClaumanAPI.Controllers
             var sqlTipos = @"
                 SELECT 'BOLETA' AS Tipo, COUNT(*) AS Cantidad, COALESCE(SUM(Total), 0) AS Total
                 FROM Boletas
-                WHERE Anulada = FALSE AND Fecha BETWEEN @Desde AND @Hasta
+                WHERE Anulada = 0 AND Fecha BETWEEN @Desde AND @Hasta
 
                 UNION ALL
 
@@ -541,7 +541,7 @@ namespace ClaumanAPI.Controllers
                 FROM Facturas
                 WHERE Estado <> 'ANULADA' AND Fecha BETWEEN @Desde AND @Hasta";
 
-            var cmd2 = new NpgsqlCommand(sqlTipos, conexion);
+            var cmd2 = new SqlCommand(sqlTipos, conexion);
             cmd2.Parameters.AddWithValue("@Desde", fechaDesde);
             cmd2.Parameters.AddWithValue("@Hasta", fechaHasta);
             using (var reader = cmd2.ExecuteReader())
@@ -571,14 +571,14 @@ namespace ClaumanAPI.Controllers
         {
             var lista = new List<ReporteFacturaImpagaItem>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
                 SELECT f.Id, f.Folio,
-                       TO_CHAR(f.Fecha, 'DD/MM/YYYY') AS Fecha,
-                       COALESCE(TO_CHAR(f.Vencimiento, 'DD/MM/YYYY'), '') AS Vencimiento,
-                       (CURRENT_DATE - f.Vencimiento) AS DiasVencido,
+                       FORMAT(f.Fecha, 'dd/MM/yyyy') AS Fecha,
+                       COALESCE(FORMAT(f.Vencimiento, 'dd/MM/yyyy'), '') AS Vencimiento,
+                       DATEDIFF(DAY, f.Vencimiento, CAST(GETDATE() AS DATE)) AS DiasVencido,
                        c.Rut AS ClienteRut, c.Nombre AS ClienteNombre,
                        f.Total, f.Estado
                 FROM Facturas f
@@ -587,7 +587,7 @@ namespace ClaumanAPI.Controllers
                   AND f.CondVenta = 'CREDITO'
                 ORDER BY f.Vencimiento ASC";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -616,22 +616,22 @@ namespace ClaumanAPI.Controllers
             int anioFinal = anio ?? DateTime.Now.Year;
             var lista = new List<ReporteResumenMensual>();
 
-            using var conexion = new NpgsqlConnection(_conexion);
+            using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
             var sql = @"
-                SELECT EXTRACT(MONTH FROM Fecha)::int AS Mes,
+                SELECT MONTH(Fecha) AS Mes,
                        COUNT(*) AS Emitidas,
                        SUM(TotalNeto) AS Neto,
                        SUM(Iva) AS Iva,
                        SUM(Total) AS Total
                 FROM Boletas
-                WHERE EXTRACT(YEAR FROM Fecha)::int = @Anio
-                  AND Anulada = FALSE
-                GROUP BY EXTRACT(MONTH FROM Fecha)
-                ORDER BY EXTRACT(MONTH FROM Fecha)";
+                WHERE YEAR(Fecha) = @Anio
+                  AND Anulada = 0
+                GROUP BY MONTH(Fecha)
+                ORDER BY MONTH(Fecha)";
 
-            var cmd = new NpgsqlCommand(sql, conexion);
+            var cmd = new SqlCommand(sql, conexion);
             cmd.Parameters.AddWithValue("@Anio", anioFinal);
 
             using var reader = cmd.ExecuteReader();
