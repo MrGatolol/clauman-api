@@ -28,7 +28,7 @@ namespace ClaumanAPI.Controllers
             var cmd = new SqlCommand(@"
                 SELECT Id, Numero,
                        FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
-                       FORMAT(Hora, 'HH:mm:ss')  AS Hora,
+                       CONVERT(VARCHAR(8), Hora, 108)  AS Hora,
                        ClienteId, ClienteRef, CondVenta,
                        DescGlobal, Total, Estado, Usuario,
                        FORMAT(Vencimiento, 'dd/MM/yyyy') AS Vencimiento
@@ -67,7 +67,7 @@ namespace ClaumanAPI.Controllers
             var cmdCab = new SqlCommand(@"
                 SELECT Id, Numero,
                        FORMAT(Fecha, 'dd/MM/yyyy'),
-                       FORMAT(Hora, 'HH:mm:ss'),
+                       CONVERT(VARCHAR(8), Hora, 108),
                        ClienteId, ClienteRef, CondVenta,
                        DescGlobal, Total, Estado, Usuario,
                        FORMAT(Vencimiento, 'dd/MM/yyyy')

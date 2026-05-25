@@ -259,7 +259,7 @@ namespace ClaumanAPI.Controllers
             var sql = @"
                 SELECT 'BOLETA' AS Tipo, b.Numero,
                        FORMAT(b.Fecha, 'dd/MM/yyyy') AS Fecha,
-                       FORMAT(b.Hora, 'HH:mm:ss')  AS Hora,
+                       CONVERT(VARCHAR(8), b.Hora, 108)  AS Hora,
                        b.MedioPago, b.Total, b.Usuario,
                        CASE WHEN b.Anulada = 1 THEN 'ANULADA' ELSE 'VIGENTE' END AS Estado
                 FROM Boletas b
@@ -270,7 +270,7 @@ namespace ClaumanAPI.Controllers
 
                 SELECT 'N.VENTA' AS Tipo, n.Numero,
                        FORMAT(n.Fecha, 'dd/MM/yyyy') AS Fecha,
-                       FORMAT(n.Hora, 'HH:mm:ss')  AS Hora,
+                       CONVERT(VARCHAR(8), n.Hora, 108)  AS Hora,
                        n.MedioPago, n.Total, n.Usuario, n.Estado
                 FROM NotasVenta n
                 WHERE (CAST(@Desde AS DATETIME2) IS NULL OR n.Fecha >= @Desde)

@@ -27,7 +27,7 @@ namespace ClaumanAPI.Controllers
             var cmd = new SqlCommand(@"
                 SELECT Id, Numero,
                        FORMAT(Fecha, 'dd/MM/yyyy') AS Fecha,
-                       FORMAT(Hora, 'HH:mm:ss') AS Hora,
+                       CONVERT(VARCHAR(8), Hora, 108) AS Hora,
                        TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                        ClienteId, Total, Motivo, Usuario, Bodega, Anulada
                 FROM NotasCredito
@@ -66,7 +66,7 @@ namespace ClaumanAPI.Controllers
             var cmdCab = new SqlCommand(@"
                 SELECT Id, Numero,
                        FORMAT(Fecha, 'dd/MM/yyyy'),
-                       FORMAT(Hora, 'HH:mm:ss'),
+                       CONVERT(VARCHAR(8), Hora, 108),
                        TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                        ClienteId, Total, Motivo, Usuario, Bodega, Anulada
                 FROM NotasCredito WHERE Id = @Id", conexion);
