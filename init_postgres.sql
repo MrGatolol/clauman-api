@@ -332,10 +332,10 @@ INSERT INTO Parametros (Clave, Valor, Descripcion) VALUES
 ON CONFLICT (Clave) DO NOTHING;
 
 -- Usuario admin inicial — contraseña: CAMBIAR_INMEDIATAMENTE_001!
--- SHA256 de "CAMBIAR_INMEDIATAMENTE_001!" = 0d8c0d7a3a4cbef6f5e9b87cd1cbf95cabc94cd9b14f8a93e8e8c8b1c14db3e9
+-- SHA256 verificado de "CAMBIAR_INMEDIATAMENTE_001!"
 -- DESPUÉS DEL PRIMER LOGIN: usa el script cambiar_password.ps1 o el modal en la UI para cambiar la contraseña.
 INSERT INTO Usuarios (Rut, Nombre, Username, PasswordHash, Rol) VALUES
     ('11.111.111-1', 'Administrador', 'admin',
-     '0d8c0d7a3a4cbef6f5e9b87cd1cbf95cabc94cd9b14f8a93e8e8c8b1c14db3e9',
+     '6eb4b988792bcd8227c7836c73a6adf202ce9db71930204be9cf2613663fdefc',
      'ADMIN')
 ON CONFLICT (Username) DO NOTHING;

@@ -41,7 +41,7 @@ namespace ClaumanAPI.Controllers
                 FROM Inventario i
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
                 WHERE (COALESCE(i.StockVina, 0) + COALESCE(i.StockVa, 0)) > 0
-                  AND (@Categoria IS NULL OR c.Nombre = @Categoria)
+                  AND (@Categoria::text IS NULL OR c.Nombre = @Categoria::text)
                 ORDER BY i.Descripcion";
 
             var cmd = new NpgsqlCommand(sql, conexion);
@@ -86,8 +86,8 @@ namespace ClaumanAPI.Controllers
                 FROM BoletasDetalle d
                 INNER JOIN Boletas b ON b.Id = d.BoletaId
                 WHERE b.Anulada = FALSE
-                  AND (@Desde IS NULL OR b.Fecha >= @Desde)
-                  AND (@Hasta IS NULL OR b.Fecha <= @Hasta)
+                  AND (@Desde::timestamp IS NULL OR b.Fecha >= @Desde)
+                  AND (@Hasta::timestamp IS NULL OR b.Fecha <= @Hasta)
                 GROUP BY d.Codigo
                 ORDER BY SUM(d.Cantidad) DESC
                 LIMIT 50";
@@ -133,8 +133,8 @@ namespace ClaumanAPI.Controllers
                 LEFT JOIN Inventario i ON i.Id = d.ProductoId
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
                 WHERE b.Anulada = FALSE
-                  AND (@Desde IS NULL OR b.Fecha >= @Desde)
-                  AND (@Hasta IS NULL OR b.Fecha <= @Hasta)
+                  AND (@Desde::timestamp IS NULL OR b.Fecha >= @Desde)
+                  AND (@Hasta::timestamp IS NULL OR b.Fecha <= @Hasta)
                 GROUP BY c.Nombre
                 ORDER BY SUM(d.Subtotal) DESC";
 
@@ -219,8 +219,8 @@ namespace ClaumanAPI.Controllers
                 FROM CotizacionesDetalle d
                 INNER JOIN Cotizaciones c ON c.Id = d.CotizacionId
                 WHERE c.Estado <> 'RECHAZADA'
-                  AND (@Desde IS NULL OR c.Fecha >= @Desde)
-                  AND (@Hasta IS NULL OR c.Fecha <= @Hasta)
+                  AND (@Desde::timestamp IS NULL OR c.Fecha >= @Desde)
+                  AND (@Hasta::timestamp IS NULL OR c.Fecha <= @Hasta)
                 GROUP BY d.Codigo
                 ORDER BY SUM(d.Cantidad) DESC
                 LIMIT 50";
@@ -263,8 +263,8 @@ namespace ClaumanAPI.Controllers
                        b.MedioPago, b.Total, b.Usuario,
                        CASE WHEN b.Anulada = TRUE THEN 'ANULADA' ELSE 'VIGENTE' END AS Estado
                 FROM Boletas b
-                WHERE (@Desde IS NULL OR b.Fecha >= @Desde)
-                  AND (@Hasta IS NULL OR b.Fecha <= @Hasta)
+                WHERE (@Desde::timestamp IS NULL OR b.Fecha >= @Desde)
+                  AND (@Hasta::timestamp IS NULL OR b.Fecha <= @Hasta)
 
                 UNION ALL
 
@@ -273,8 +273,8 @@ namespace ClaumanAPI.Controllers
                        TO_CHAR(n.Hora, 'HH24:MI:SS')  AS Hora,
                        n.MedioPago, n.Total, n.Usuario, n.Estado
                 FROM NotasVenta n
-                WHERE (@Desde IS NULL OR n.Fecha >= @Desde)
-                  AND (@Hasta IS NULL OR n.Fecha <= @Hasta)
+                WHERE (@Desde::timestamp IS NULL OR n.Fecha >= @Desde)
+                  AND (@Hasta::timestamp IS NULL OR n.Fecha <= @Hasta)
 
                 ORDER BY Fecha DESC, Hora DESC";
 
@@ -326,9 +326,9 @@ namespace ClaumanAPI.Controllers
                 FROM TrasladosDetalle d
                 INNER JOIN Traslados t ON t.Id = d.TrasladoId
                 WHERE t.Estado = 'COMPLETADO'
-                  AND (@Bodega IS NULL OR t.{colBodega} = @Bodega)
-                  AND (@Desde  IS NULL OR t.Fecha >= @Desde)
-                  AND (@Hasta  IS NULL OR t.Fecha <= @Hasta)
+                  AND (@Bodega::text IS NULL OR t.{colBodega} = @Bodega::text)
+                  AND (@Desde::timestamp IS NULL OR t.Fecha >= @Desde::timestamp)
+                  AND (@Hasta::timestamp IS NULL OR t.Fecha <= @Hasta::timestamp)
                 ORDER BY t.Fecha DESC, t.Numero DESC";
 
             var cmd = new NpgsqlCommand(sql, conexion);
@@ -435,9 +435,9 @@ namespace ClaumanAPI.Controllers
                 INNER JOIN FacturasCompra  f ON f.Id = d.FacturaCompraId
                 INNER JOIN Proveedores     p ON p.Id = f.ProveedorId
                 WHERE f.Estado <> 'ANULADA'
-                  AND (@Desde       IS NULL OR f.Fecha >= @Desde)
-                  AND (@Hasta       IS NULL OR f.Fecha <= @Hasta)
-                  AND (@ProveedorId IS NULL OR f.ProveedorId = @ProveedorId)
+                  AND (@Desde::timestamp IS NULL OR f.Fecha >= @Desde::timestamp)
+                  AND (@Hasta::timestamp IS NULL OR f.Fecha <= @Hasta::timestamp)
+                  AND (@ProveedorId::int IS NULL OR f.ProveedorId = @ProveedorId::int)
                 ORDER BY f.Fecha DESC, f.Id DESC";
 
             var cmd = new NpgsqlCommand(sql, conexion);

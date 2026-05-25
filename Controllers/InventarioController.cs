@@ -33,7 +33,7 @@ namespace ClaumanAPI.Controllers
                     COALESCE(i.StockVina, 0), COALESCE(i.StockVa, 0),
                     COALESCE(i.PrecioMeson, 0), COALESCE(i.PrecioMayor, 0),
                     COALESCE(i.PrecioWeb, 0), COALESCE(i.CostoNeto, 0),
-                    COALESCE(i.Utilidad, 0), COALESCE(i.TieneImagen, 0),
+                    COALESCE(i.Utilidad, 0), COALESCE(i.TieneImagen, FALSE),
                     COALESCE(i.Observacion, ''), COALESCE(i.Compatibilidad, '')
                 FROM Inventario i
                 LEFT JOIN Categorias c ON i.CategoriaId = c.Id
@@ -88,8 +88,8 @@ namespace ClaumanAPI.Controllers
             // Filtro WHERE compartido entre el COUNT y el SELECT (evita divergencia)
             string where = @"
                 WHERE 1=1
-                  AND (@Q IS NULL OR i.Codigo LIKE @QLike OR i.Descripcion LIKE @QLike)
-                  AND (@CategoriaId IS NULL OR i.CategoriaId = @CategoriaId)
+                  AND (@Q::text IS NULL OR i.Codigo LIKE @QLike::text OR i.Descripcion LIKE @QLike::text)
+                  AND (@CategoriaId::int IS NULL OR i.CategoriaId = @CategoriaId::int)
                   AND (@SoloConStock = 0 OR (COALESCE(i.StockVina, 0) + COALESCE(i.StockVa, 0)) > 0)";
 
             // 1) Contar total con el mismo filtro (para que el front pueda calcular páginas)
@@ -109,7 +109,7 @@ namespace ClaumanAPI.Controllers
                     COALESCE(i.StockVina, 0), COALESCE(i.StockVa, 0),
                     COALESCE(i.PrecioMeson, 0), COALESCE(i.PrecioMayor, 0),
                     COALESCE(i.PrecioWeb, 0), COALESCE(i.CostoNeto, 0),
-                    COALESCE(i.Utilidad, 0), COALESCE(i.TieneImagen, 0),
+                    COALESCE(i.Utilidad, 0), COALESCE(i.TieneImagen, FALSE),
                     COALESCE(i.Observacion, ''), COALESCE(i.Compatibilidad, '')
                 FROM Inventario i
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
@@ -173,7 +173,7 @@ namespace ClaumanAPI.Controllers
                     COALESCE(i.StockVina, 0), COALESCE(i.StockVa, 0),
                     COALESCE(i.PrecioMeson, 0), COALESCE(i.PrecioMayor, 0),
                     COALESCE(i.PrecioWeb, 0), COALESCE(i.CostoNeto, 0),
-                    COALESCE(i.Utilidad, 0), COALESCE(i.TieneImagen, 0),
+                    COALESCE(i.Utilidad, 0), COALESCE(i.TieneImagen, FALSE),
                     COALESCE(i.Observacion, ''), COALESCE(i.Compatibilidad, '')
                 FROM Inventario i
                 LEFT JOIN Categorias c ON i.CategoriaId = c.Id

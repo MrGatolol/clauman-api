@@ -36,7 +36,7 @@ namespace ClaumanAPI.Controllers
                        COALESCE(i.PrecioMayor, 0)  AS PrecioMayor
                 FROM Inventario i
                 LEFT JOIN Categorias c ON c.Id = i.CategoriaId
-                WHERE (@CategoriaId IS NULL OR i.CategoriaId = @CategoriaId)
+                WHERE (@CategoriaId::int IS NULL OR i.CategoriaId = @CategoriaId::int)
                 ORDER BY i.Descripcion";
 
             var cmd = new NpgsqlCommand(sql, conexion);
@@ -94,7 +94,7 @@ namespace ClaumanAPI.Controllers
                 var sql = $@"
                     UPDATE Inventario
                     SET {set}
-                    WHERE (@CategoriaId IS NULL OR CategoriaId = @CategoriaId)";
+                    WHERE (@CategoriaId::int IS NULL OR CategoriaId = @CategoriaId::int)";
 
                 var cmd = new NpgsqlCommand(sql, conexion, tx);
                 cmd.Parameters.AddWithValue("@Factor",      factor);

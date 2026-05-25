@@ -136,7 +136,7 @@ namespace ClaumanAPI.Controllers
             // Mapeo: tabla de cabecera, tabla detalle, columna FK, columna estado
             var (tablaDoc, tablaDet, colFk, columnaEstado, valorAnulada) = nc.TipoDocOrigen switch
             {
-                "BOLETA"     => ("Boletas",    "BoletasDetalle",    "BoletaId",    "Anulada", "1"),
+                "BOLETA"     => ("Boletas",    "BoletasDetalle",    "BoletaId",    "Anulada", "TRUE"),
                 "FACTURA"    => ("Facturas",   "FacturasDetalle",   "FacturaId",   "Estado",  "'ANULADA'"),
                 _            => ("NotasVenta", "NotasVentaDetalle", "NotaVentaId", "Estado",  "'ANULADA'"),
             };

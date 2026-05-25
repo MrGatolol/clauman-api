@@ -32,8 +32,8 @@ namespace ClaumanAPI.Controllers
                        TO_CHAR(Fecha, 'DD/MM/YYYY HH24:MI:SS') AS Fecha,
                        Local, Tipo, ProductoId, Codigo, Descripcion, Motivo, Ajuste, Usuario
                 FROM Ajustes
-                WHERE (@Desde IS NULL OR CAST(Fecha AS DATE) >= @Desde)
-                  AND (@Hasta IS NULL OR CAST(Fecha AS DATE) <= @Hasta)
+                WHERE (CAST(@Desde AS DATE) IS NULL OR CAST(Fecha AS DATE) >= CAST(@Desde AS DATE))
+                  AND (CAST(@Hasta AS DATE) IS NULL OR CAST(Fecha AS DATE) <= CAST(@Hasta AS DATE))
                 ORDER BY Fecha DESC";
 
             var cmd = new NpgsqlCommand(sql, conexion);

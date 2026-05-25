@@ -87,7 +87,7 @@ namespace ClaumanAPI.Middleware
 
             // Leer rol + permisos
             var cmd = new NpgsqlCommand(
-                "SELECT Rol, ISNULL(Permisos, '') FROM Usuarios WHERE Id = @Id", conexion);
+                "SELECT Rol, COALESCE(Permisos, '') FROM Usuarios WHERE Id = @Id", conexion);
             cmd.Parameters.AddWithValue("@Id", usuarioId);
 
             string rol = "";

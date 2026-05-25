@@ -91,7 +91,7 @@ namespace ClaumanAPI.Middleware
 
             // Refrescar UltimoUso (sliding session — extiende cada uso por 8h más)
             var cmdRefresh = new NpgsqlCommand(
-                "UPDATE SesionTokens SET UltimoUso = GETDATE(), ExpiraEn = @E WHERE Token = @T",
+                "UPDATE SesionTokens SET UltimoUso = NOW(), ExpiraEn = @E WHERE Token = @T",
                 conexion);
             cmdRefresh.Parameters.AddWithValue("@T", token);
             cmdRefresh.Parameters.AddWithValue("@E", DateTime.UtcNow.AddHours(8));
