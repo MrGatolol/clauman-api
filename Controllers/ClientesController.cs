@@ -149,14 +149,24 @@ namespace ClaumanAPI.Controllers
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new SqlCommand("DELETE FROM Clientes WHERE Id = @Id", conexion);
-            cmd.Parameters.AddWithValue("@Id", id);
+            try
+            {
+                var cmd = new SqlCommand("DELETE FROM Clientes WHERE Id = @Id", conexion);
+                cmd.Parameters.AddWithValue("@Id", id);
 
-            int filas = cmd.ExecuteNonQuery();
-            if (filas == 0)
-                return NotFound(new { mensaje = $"Cliente {id} no encontrado." });
+                int filas = cmd.ExecuteNonQuery();
+                if (filas == 0)
+                    return NotFound(new { mensaje = $"Cliente {id} no encontrado." });
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                return Conflict(new {
+                    mensaje = $"No se puede eliminar el cliente {id} porque tiene boletas/facturas/cotizaciones asociadas. " +
+                              "Conservar el historial requiere mantener el cliente."
+                });
+            }
         }
     }
 }

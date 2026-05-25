@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
+using ClaumanAPI.Middleware;
 
 namespace ClaumanAPI.Controllers
 {
@@ -33,8 +34,9 @@ namespace ClaumanAPI.Controllers
             return Ok(lista);
         }
 
-        // POST /api/categorias
+        // POST /api/categorias  — solo ADMIN (taxonomía base del sistema)
         [HttpPost]
+        [RequireRol("ADMIN")]
         public IActionResult Crear([FromBody] Categoria categoria)
         {
             using var conexion = new SqlConnection(_conexion);
@@ -51,21 +53,32 @@ namespace ClaumanAPI.Controllers
             return CreatedAtAction(nameof(ObtenerTodas), categoria);
         }
 
-        // DELETE /api/categorias/5
+        // DELETE /api/categorias/5 — solo ADMIN
         [HttpDelete("{id}")]
+        [RequireRol("ADMIN")]
         public IActionResult Eliminar(int id)
         {
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new SqlCommand("DELETE FROM Categorias WHERE Id = @Id", conexion);
-            cmd.Parameters.AddWithValue("@Id", id);
+            try
+            {
+                var cmd = new SqlCommand("DELETE FROM Categorias WHERE Id = @Id", conexion);
+                cmd.Parameters.AddWithValue("@Id", id);
 
-            int filas = cmd.ExecuteNonQuery();
-            if (filas == 0)
-                return NotFound(new { mensaje = $"Categoría {id} no encontrada." });
+                int filas = cmd.ExecuteNonQuery();
+                if (filas == 0)
+                    return NotFound(new { mensaje = $"Categoría {id} no encontrada." });
 
-            return NoContent();
+                return NoContent();
+            }
+            // FK violation: hay productos que referencian esta categoría
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                return Conflict(new {
+                    mensaje = $"No se puede eliminar la categoría {id} porque tiene productos asociados. Reasigna o elimina esos productos primero."
+                });
+            }
         }
     }
 }

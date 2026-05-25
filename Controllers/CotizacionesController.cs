@@ -126,6 +126,8 @@ namespace ClaumanAPI.Controllers
         {
             if (cot.Detalle.Count == 0)
                 return BadRequest(new { mensaje = "La cotización debe tener al menos un producto." });
+            if (cot.Total < 0 || cot.DescGlobal < 0)
+                return BadRequest(new { mensaje = "Los totales no pueden ser negativos." });
 
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
@@ -133,6 +135,16 @@ namespace ClaumanAPI.Controllers
 
             try
             {
+                // Validar ClienteId si vino con valor
+                if (cot.ClienteId.HasValue)
+                {
+                    var cmdCli = new SqlCommand(
+                        "SELECT COUNT(*) FROM Clientes WHERE Id = @Id", conexion, tx);
+                    cmdCli.Parameters.AddWithValue("@Id", cot.ClienteId.Value);
+                    if ((int)cmdCli.ExecuteScalar() == 0)
+                        return BadRequest(new { mensaje = $"El cliente {cot.ClienteId.Value} no existe." });
+                }
+
                 // Próximo número con bloqueo exclusivo (evita race conditions con varios cajeros)
                 var cmdNum = new SqlCommand(
                     "SELECT COALESCE(MAX(Numero), 32559) + 1 FROM Cotizaciones WITH (TABLOCKX, HOLDLOCK)",
@@ -191,6 +203,7 @@ namespace ClaumanAPI.Controllers
 
         // PUT /api/cotizaciones/5/estado  — cambia el estado (ACEPTADA / RECHAZADA / VENCIDA)
         [HttpPut("{id}/estado")]
+        [RequirePermiso("ventas.crearCotizacion")]
         public IActionResult CambiarEstado(int id, [FromBody] Dictionary<string, string> body)
         {
             if (!body.TryGetValue("estado", out var nuevoEstado))

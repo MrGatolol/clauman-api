@@ -139,8 +139,8 @@ namespace ClaumanAPI.Controllers
                 if (string.IsNullOrWhiteSpace(item.Codigo))
                     return BadRequest(new { mensaje = "Hay items sin código." });
             }
-            if (nv.Total < 0)
-                return BadRequest(new { mensaje = "El total no puede ser negativo." });
+            if (nv.Total < 0 || nv.TotalNeto < 0 || nv.Iva < 0 || nv.DescGlobal < 0)
+                return BadRequest(new { mensaje = "Los totales (Total, TotalNeto, Iva, DescGlobal) no pueden ser negativos." });
 
             var bodega = nv.Bodega?.ToUpper() ?? "VINA";
             if (bodega != "VINA" && bodega != "VALEMANA")
@@ -154,12 +154,22 @@ namespace ClaumanAPI.Controllers
 
             try
             {
+                // Validar ClienteId si vino con valor
+                if (nv.ClienteId.HasValue)
+                {
+                    var cmdCli = new SqlCommand(
+                        "SELECT COUNT(*) FROM Clientes WHERE Id = @Id", conexion, tx);
+                    cmdCli.Parameters.AddWithValue("@Id", nv.ClienteId.Value);
+                    if ((int)cmdCli.ExecuteScalar() == 0)
+                        return BadRequest(new { mensaje = $"El cliente {nv.ClienteId.Value} no existe." });
+                }
+
                 // Validar stock disponible
                 foreach (var item in nv.Detalle)
                 {
                     if (item.ProductoId == null) continue;
                     var cmdStockActual = new SqlCommand(
-                        $"SELECT COALESCE({colStock}, 0) FROM Inventario WHERE Id = @Id", conexion, tx);
+                        $"SELECT COALESCE({colStock}, 0) FROM Inventario WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conexion, tx);
                     cmdStockActual.Parameters.AddWithValue("@Id", item.ProductoId.Value);
                     var disponible = (int)(cmdStockActual.ExecuteScalar() ?? 0);
                     if (disponible < item.Cantidad)
@@ -240,6 +250,7 @@ namespace ClaumanAPI.Controllers
         // PUT /api/notas-venta/5/anular
         // Marca anulada + devuelve stock.
         [HttpPut("{id}/anular")]
+        [RequireRol("ADMIN")]
         public IActionResult Anular(int id)
         {
             using var conexion = new SqlConnection(_conexion);
@@ -291,6 +302,7 @@ namespace ClaumanAPI.Controllers
 
         // PUT /api/notas-venta/5/facturar  — marca como facturada (en sistemas reales generaría una boleta/factura)
         [HttpPut("{id}/facturar")]
+        [RequirePermiso("ventas.crearFactura")]
         public IActionResult Facturar(int id)
         {
             using var conexion = new SqlConnection(_conexion);

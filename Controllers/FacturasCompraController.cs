@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
 using ClaumanAPI.Models;
+using ClaumanAPI.Middleware;
 
 namespace ClaumanAPI.Controllers
 {
@@ -210,6 +211,7 @@ namespace ClaumanAPI.Controllers
         // SUMA el stock al inventario y opcionalmente actualiza precios sugeridos.
         // Esta es la operación clave del módulo: la compra entra a inventario.
         [HttpPut("{id}/recepcionar")]
+        [RequireRol("ADMIN")]
         public IActionResult Recepcionar(int id, [FromQuery] string bodega = "VINA")
         {
             var bodegaCol = bodega.Equals("VALEMANA", StringComparison.OrdinalIgnoreCase) ? "StockVa" : "StockVina";
@@ -254,10 +256,12 @@ namespace ClaumanAPI.Controllers
                 {
                     if (prodId == null) continue;  // si no tiene producto vinculado, no se puede sumar stock
 
+                    // CASE WHEN > 0: si la factura no trae el precio/costo, NO lo pisamos
+                    // (preservamos el valor existente del inventario)
                     var cmdStock = new SqlCommand(
                         $@"UPDATE Inventario SET
                               {bodegaCol} = COALESCE({bodegaCol}, 0) + @Cant,
-                              CostoNeto   = @CostoNeto,
+                              CostoNeto   = CASE WHEN @CostoNeto > 0 THEN @CostoNeto ELSE CostoNeto END,
                               PrecioMeson = CASE WHEN @PMeson > 0 THEN @PMeson ELSE PrecioMeson END,
                               PrecioMayor = CASE WHEN @PMayor > 0 THEN @PMayor ELSE PrecioMayor END
                            WHERE Id = @Id",
@@ -289,6 +293,7 @@ namespace ClaumanAPI.Controllers
 
         // PUT /api/facturas-compra/5/pagar
         [HttpPut("{id}/pagar")]
+        [RequireRol("ADMIN")]
         public IActionResult Pagar(int id)
         {
             using var conexion = new SqlConnection(_conexion);
@@ -302,20 +307,74 @@ namespace ClaumanAPI.Controllers
             return NoContent();
         }
 
-        // PUT /api/facturas-compra/5/anular
-        // Si está RECEPCIONADA, debería revertir el stock... pero por simplicidad solo marca el estado.
+        // PUT /api/facturas-compra/5/anular?bodega=VINA
+        // Si la factura ya fue RECEPCIONADA, reversa el stock que se sumó (descuenta
+        // de la bodega indicada). Por eso `bodega` es obligatoria si está RECEPCIONADA
+        // — el endpoint no tiene cómo saber dónde se recibió.
         [HttpPut("{id}/anular")]
-        public IActionResult Anular(int id)
+        [RequireRol("ADMIN")]
+        public IActionResult Anular(int id, [FromQuery] string? bodega = null)
         {
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
-            var cmd = new SqlCommand(
-                "UPDATE FacturasCompra SET Estado = 'ANULADA' WHERE Id = @Id",
-                conexion);
-            cmd.Parameters.AddWithValue("@Id", id);
-            if (cmd.ExecuteNonQuery() == 0)
-                return NotFound(new { mensaje = $"Factura {id} no encontrada." });
-            return NoContent();
+            using var tx = conexion.BeginTransaction();
+
+            try
+            {
+                var cmdEstado = new SqlCommand(
+                    "SELECT Estado FROM FacturasCompra WHERE Id = @Id", conexion, tx);
+                cmdEstado.Parameters.AddWithValue("@Id", id);
+                var estado = cmdEstado.ExecuteScalar() as string;
+                if (estado == null)
+                    return NotFound(new { mensaje = $"Factura {id} no encontrada." });
+                if (estado == "ANULADA")
+                    return BadRequest(new { mensaje = "La factura ya estaba anulada." });
+
+                int revertidos = 0;
+
+                // Si está RECEPCIONADA, hay stock que devolver
+                if (estado == "RECEPCIONADA")
+                {
+                    var bodegaCol = bodega?.ToUpperInvariant() switch
+                    {
+                        "VINA"     => "StockVina",
+                        "VALEMANA" => "StockVa",
+                        _          => null
+                    };
+                    if (bodegaCol == null)
+                        return BadRequest(new {
+                            mensaje = "Esta factura ya fue recepcionada. Indica en qué bodega para reversar el stock (?bodega=VINA o ?bodega=VALEMANA)."
+                        });
+
+                    var cmdRev = new SqlCommand($@"
+                        UPDATE i
+                        SET i.{bodegaCol} = COALESCE(i.{bodegaCol}, 0) - d.Cantidad
+                        FROM Inventario i
+                        INNER JOIN FacturasCompraDetalle d ON d.ProductoId = i.Id
+                        WHERE d.FacturaCompraId = @Id AND d.ProductoId IS NOT NULL",
+                        conexion, tx);
+                    cmdRev.Parameters.AddWithValue("@Id", id);
+                    revertidos = cmdRev.ExecuteNonQuery();
+                }
+
+                var cmdUpd = new SqlCommand(
+                    "UPDATE FacturasCompra SET Estado = 'ANULADA' WHERE Id = @Id",
+                    conexion, tx);
+                cmdUpd.Parameters.AddWithValue("@Id", id);
+                cmdUpd.ExecuteNonQuery();
+
+                tx.Commit();
+                return Ok(new {
+                    mensaje = revertidos > 0
+                        ? $"Factura anulada. Se reversó stock de {revertidos} producto(s) de {bodega?.ToUpperInvariant()}."
+                        : "Factura anulada (no había stock que reversar)."
+                });
+            }
+            catch (Exception ex)
+            {
+                tx.Rollback();
+                return StatusCode(500, new { mensaje = "Error al anular la factura.", detalle = ex.Message });
+            }
         }
     }
 }

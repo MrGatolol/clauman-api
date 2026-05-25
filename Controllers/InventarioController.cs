@@ -258,8 +258,9 @@ namespace ClaumanAPI.Controllers
             }
         }
 
-        // PUT /api/inventario/5
+        // PUT /api/inventario/5 — editar producto (precios, stock manual, etc.)
         [HttpPut("{id}")]
+        [RequirePermiso("productos.editar")]
         public IActionResult Editar(int id, [FromBody] Producto producto)
         {
             if (string.IsNullOrWhiteSpace(producto.Codigo))
@@ -314,14 +315,23 @@ namespace ClaumanAPI.Controllers
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new SqlCommand("DELETE FROM Inventario WHERE Id = @Id", conexion);
-            cmd.Parameters.AddWithValue("@Id", id);
+            try
+            {
+                var cmd = new SqlCommand("DELETE FROM Inventario WHERE Id = @Id", conexion);
+                cmd.Parameters.AddWithValue("@Id", id);
 
-            int filas = cmd.ExecuteNonQuery();
-            if (filas == 0)
-                return NotFound(new { mensaje = $"Producto con Id {id} no encontrado." });
+                int filas = cmd.ExecuteNonQuery();
+                if (filas == 0)
+                    return NotFound(new { mensaje = $"Producto con Id {id} no encontrado." });
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                return Conflict(new {
+                    mensaje = $"No se puede eliminar el producto {id} porque aparece en boletas, facturas, cotizaciones u otros documentos históricos."
+                });
+            }
         }
 
         // ---- Helpers privados ----

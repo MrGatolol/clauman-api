@@ -131,14 +131,23 @@ namespace ClaumanAPI.Controllers
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new SqlCommand("DELETE FROM Proveedores WHERE Id = @Id", conexion);
-            cmd.Parameters.AddWithValue("@Id", id);
+            try
+            {
+                var cmd = new SqlCommand("DELETE FROM Proveedores WHERE Id = @Id", conexion);
+                cmd.Parameters.AddWithValue("@Id", id);
 
-            int filas = cmd.ExecuteNonQuery();
-            if (filas == 0)
-                return NotFound(new { mensaje = $"Proveedor {id} no encontrado." });
+                int filas = cmd.ExecuteNonQuery();
+                if (filas == 0)
+                    return NotFound(new { mensaje = $"Proveedor {id} no encontrado." });
 
-            return NoContent();
+                return NoContent();
+            }
+            catch (SqlException ex) when (ex.Number == 547)
+            {
+                return Conflict(new {
+                    mensaje = $"No se puede eliminar el proveedor {id} porque tiene facturas de compra asociadas."
+                });
+            }
         }
 
         // Helper: agrega los 12 parámetros a un SqlCommand de INSERT/UPDATE

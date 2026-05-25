@@ -169,7 +169,7 @@ namespace ClaumanAPI.Controllers
                 {
                     if (item.ProductoId == null) continue;
                     var cmdStockActual = new SqlCommand(
-                        $"SELECT COALESCE({colStock}, 0) FROM Inventario WHERE Id = @Id", conexion, tx);
+                        $"SELECT COALESCE({colStock}, 0) FROM Inventario WITH (UPDLOCK, HOLDLOCK) WHERE Id = @Id", conexion, tx);
                     cmdStockActual.Parameters.AddWithValue("@Id", item.ProductoId.Value);
                     var disponible = (int)(cmdStockActual.ExecuteScalar() ?? 0);
                     if (disponible < item.Cantidad)
@@ -256,6 +256,7 @@ namespace ClaumanAPI.Controllers
 
         // PUT /api/facturas/5/pagar  — marca como pagada
         [HttpPut("{id}/pagar")]
+        [RequireRol("ADMIN")]
         public IActionResult Pagar(int id)
         {
             using var conexion = new SqlConnection(_conexion);
@@ -272,6 +273,7 @@ namespace ClaumanAPI.Controllers
         // PUT /api/facturas/5/anular
         // Marca anulada y devuelve el stock al inventario de la misma bodega.
         [HttpPut("{id}/anular")]
+        [RequireRol("ADMIN")]
         public IActionResult Anular(int id)
         {
             using var conexion = new SqlConnection(_conexion);
@@ -325,6 +327,7 @@ namespace ClaumanAPI.Controllers
 
         // PUT /api/facturas/5/anular-legacy  (DEPRECATED)
         [HttpPut("{id}/anular-legacy")]
+        [RequireRol("ADMIN")]
         public IActionResult AnularLegacy(int id)
         {
             using var conexion = new SqlConnection(_conexion);

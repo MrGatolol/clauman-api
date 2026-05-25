@@ -19,6 +19,7 @@ namespace ClaumanAPI.Controllers
         // POST /api/cambio-precios/preview
         // Calcula los precios nuevos sin aplicarlos — devuelve un preview para que el usuario confirme.
         [HttpPost("preview")]
+        [RequireRol("ADMIN")]
         public IActionResult Preview([FromBody] CambioPreciosRequest req)
         {
             var lista = new List<PreviewCambioPrecio>();
