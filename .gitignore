@@ -1,0 +1,32 @@
+# ==== Build artifacts ====
+bin/
+obj/
+*.user
+*.suo
+
+# ==== Logs locales ====
+*.log
+api_log.txt
+api_log.txt.err
+
+# ==== Connection strings con secretos ====
+appsettings.Development.json
+appsettings.Production.json
+*.secrets
+
+# ==== Scripts locales con credenciales ====
+setup_neon.csx
+fix_admin_pass.csx
+*.lscache
+
+# ==== VS Code workspace ====
+.vscode/*
+!.vscode/extensions.json
+
+# ==== IDEs ====
+.idea/
+.vs/
+
+# ==== Sistema ====
+.DS_Store
+Thumbs.db
