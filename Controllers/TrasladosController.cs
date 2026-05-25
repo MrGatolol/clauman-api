@@ -122,7 +122,7 @@ namespace ClaumanAPI.Controllers
             try
             {
                 var cmdNum = new SqlCommand(
-                    "SELECT COALESCE(MAX(Numero), 8399) + 1 FROM Traslados",
+                    "SELECT COALESCE(MAX(Numero), 8399) + 1 FROM Traslados WITH (TABLOCKX, HOLDLOCK)",
                     conexion, tx);
                 traslado.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
@@ -130,7 +130,7 @@ namespace ClaumanAPI.Controllers
                     INSERT INTO Traslados
                         (Numero, Fecha, Hora, BodegaOrigen, BodegaDest, Estado, Usuario)
                     VALUES
-                        (@Numero, GETDATE(), CURRENT_TIME,
+                        (@Numero, GETDATE(), CAST(GETDATE() AS TIME),
                          @BodegaOrigen, @BodegaDest, 'PENDIENTE', @Usuario)
                     ;
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);

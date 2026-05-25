@@ -135,7 +135,7 @@ namespace ClaumanAPI.Controllers
             {
                 // Próximo número con bloqueo exclusivo (evita race conditions con varios cajeros)
                 var cmdNum = new SqlCommand(
-                    "SELECT COALESCE(MAX(Numero), 32559) + 1 FROM Cotizaciones ",
+                    "SELECT COALESCE(MAX(Numero), 32559) + 1 FROM Cotizaciones WITH (TABLOCKX, HOLDLOCK)",
                     conexion, tx);
                 cot.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
@@ -144,7 +144,7 @@ namespace ClaumanAPI.Controllers
                         (Numero, Fecha, Hora, ClienteId, ClienteRef, CondVenta,
                          DescGlobal, Total, Estado, Usuario, Vencimiento)
                     VALUES
-                        (@Numero, GETDATE(), CURRENT_TIME, @ClienteId, @ClienteRef, @CondVenta,
+                        (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @ClienteRef, @CondVenta,
                          @DescGlobal, @Total, 'VIGENTE', @Usuario, @Vencimiento)
                     ;
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);

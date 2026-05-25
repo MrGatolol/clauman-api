@@ -181,7 +181,7 @@ namespace ClaumanAPI.Controllers
                 // ---- 2) Obtener próximo número con bloqueo exclusivo ----
                 // TABLOCKX evita que otra transacción concurrente lea el mismo MAX
                 var cmdNum = new SqlCommand(
-                    "SELECT COALESCE(MAX(Numero), 44660) + 1 FROM Boletas ",
+                    "SELECT COALESCE(MAX(Numero), 44660) + 1 FROM Boletas WITH (TABLOCKX, HOLDLOCK)",
                     conexion, tx);
                 boleta.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
@@ -191,7 +191,7 @@ namespace ClaumanAPI.Controllers
                         (Numero, Fecha, Hora, ClienteId, MedioPago,
                          DescGlobal, TotalNeto, Iva, Total, Usuario, Anulada, Bodega)
                     VALUES
-                        (@Numero, GETDATE(), CURRENT_TIME, @ClienteId, @MedioPago,
+                        (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @MedioPago,
                          @DescGlobal, @TotalNeto, @Iva, @Total, @Usuario, 0, @Bodega)
                     ;
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);

@@ -50,6 +50,37 @@ namespace ClaumanAPI.Controllers
             return Ok(lista);
         }
 
+        // GET /api/clientes/5  — un cliente específico
+        [HttpGet("{id}")]
+        public IActionResult ObtenerPorId(int id)
+        {
+            using var conexion = new SqlConnection(_conexion);
+            conexion.Open();
+
+            var cmd = new SqlCommand(
+                "SELECT Id, Rut, Nombre, Direccion, Comuna, Ciudad, Giro, Telefono, EmailCorp, EmailCot FROM Clientes WHERE Id = @Id",
+                conexion
+            );
+            cmd.Parameters.AddWithValue("@Id", id);
+            using var reader = cmd.ExecuteReader();
+            if (!reader.Read())
+                return NotFound(new { mensaje = $"Cliente {id} no encontrado." });
+
+            return Ok(new Cliente
+            {
+                Id        = reader.GetInt32(0),
+                Rut       = reader.IsDBNull(1) ? "" : reader.GetString(1),
+                Nombre    = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                Direccion = reader.IsDBNull(3) ? "" : reader.GetString(3),
+                Comuna    = reader.IsDBNull(4) ? "" : reader.GetString(4),
+                Ciudad    = reader.IsDBNull(5) ? "" : reader.GetString(5),
+                Giro      = reader.IsDBNull(6) ? "" : reader.GetString(6),
+                Telefono  = reader.IsDBNull(7) ? "" : reader.GetString(7),
+                EmailCorp = reader.IsDBNull(8) ? "" : reader.GetString(8),
+                EmailCot  = reader.IsDBNull(9) ? "" : reader.GetString(9),
+            });
+        }
+
         // POST /api/clientes
         [HttpPost]
         public IActionResult Crear([FromBody] Cliente cliente)

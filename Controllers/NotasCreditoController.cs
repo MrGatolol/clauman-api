@@ -196,7 +196,7 @@ namespace ClaumanAPI.Controllers
 
                 // 3. Reservar número correlativo de NC con bloqueo
                 var cmdNum = new SqlCommand(
-                    "SELECT COALESCE(MAX(Numero), 999) + 1 FROM NotasCredito ",
+                    "SELECT COALESCE(MAX(Numero), 999) + 1 FROM NotasCredito WITH (TABLOCKX, HOLDLOCK)",
                     conexion, tx);
                 nc.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
@@ -206,7 +206,7 @@ namespace ClaumanAPI.Controllers
                         (Numero, Fecha, Hora, TipoDocOrigen, DocOrigenId, DocOrigenNumero,
                          ClienteId, Total, Motivo, Usuario, Bodega, Anulada)
                     VALUES
-                        (@Numero, GETDATE(), CURRENT_TIME, @TipoDocOrigen, @DocOrigenId, @DocOrigenNumero,
+                        (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @TipoDocOrigen, @DocOrigenId, @DocOrigenNumero,
                          @ClienteId, @Total, @Motivo, @Usuario, @Bodega, 0)
                     ;
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);

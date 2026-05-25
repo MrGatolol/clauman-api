@@ -181,7 +181,7 @@ namespace ClaumanAPI.Controllers
 
                 // Próximo número interno y folio con bloqueo exclusivo
                 var cmdNum = new SqlCommand(
-                    "SELECT COALESCE(MAX(Numero), 999) + 1, COALESCE(MAX(Folio), 1999999) + 1 FROM Facturas ",
+                    "SELECT COALESCE(MAX(Numero), 999) + 1, COALESCE(MAX(Folio), 1999999) + 1 FROM Facturas WITH (TABLOCKX, HOLDLOCK)",
                     conexion, tx);
                 using (var rdr = cmdNum.ExecuteReader())
                 {
@@ -195,7 +195,7 @@ namespace ClaumanAPI.Controllers
                         (Numero, Folio, Fecha, Hora, ClienteId, CondVenta, OrdenCompra,
                          DescGlobal, TotalNeto, Iva, Total, Estado, Usuario, Vencimiento, Bodega)
                     VALUES
-                        (@Numero, @Folio, GETDATE(), CURRENT_TIME, @ClienteId, @CondVenta, @OrdenCompra,
+                        (@Numero, @Folio, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @CondVenta, @OrdenCompra,
                          @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Vencimiento, @Bodega)
                     ;
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);

@@ -79,11 +79,12 @@ namespace ClaumanAPI.Controllers
             try
             {
                 // 1) Insertar el ajuste
+                // OUTPUT INSERTED nos devuelve Id + Fecha en una sola llamada — así
+                // el front puede mostrar el ajuste recién creado sin tener que refetchear.
                 var cmd = new SqlCommand(@"
                     INSERT INTO Ajustes (Fecha, Local, Tipo, ProductoId, Codigo, Descripcion, Motivo, Ajuste, Usuario)
-                    VALUES (GETDATE(), @Local, @Tipo, @ProductoId, @Codigo, @Descripcion, @Motivo, @Ajuste, @Usuario)
-                    ;
-                    SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
+                    OUTPUT INSERTED.Id, FORMAT(INSERTED.Fecha, 'dd/MM/yyyy HH:mm:ss') AS Fecha
+                    VALUES (GETDATE(), @Local, @Tipo, @ProductoId, @Codigo, @Descripcion, @Motivo, @Ajuste, @Usuario)", conexion, tx);
 
                 cmd.Parameters.AddWithValue("@Local",       a.Local);
                 cmd.Parameters.AddWithValue("@Tipo",        a.Tipo);
@@ -94,7 +95,12 @@ namespace ClaumanAPI.Controllers
                 cmd.Parameters.AddWithValue("@Ajuste",      a.AjusteCantidad);
                 cmd.Parameters.AddWithValue("@Usuario",     a.Usuario);
 
-                a.Id = Convert.ToInt32(cmd.ExecuteScalar());
+                using (var rd = cmd.ExecuteReader())
+                {
+                    rd.Read();
+                    a.Id    = rd.GetInt32(0);
+                    a.Fecha = rd.GetString(1);
+                }
 
                 // 2) Si tiene producto + cantidad != 0, actualiza el stock
                 if (a.ProductoId.HasValue && a.AjusteCantidad != 0)

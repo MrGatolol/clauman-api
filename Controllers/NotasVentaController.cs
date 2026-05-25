@@ -171,7 +171,7 @@ namespace ClaumanAPI.Controllers
 
                 // Número correlativo con bloqueo exclusivo
                 var cmdNum = new SqlCommand(
-                    "SELECT COALESCE(MAX(Numero), 39599) + 1 FROM NotasVenta ",
+                    "SELECT COALESCE(MAX(Numero), 39599) + 1 FROM NotasVenta WITH (TABLOCKX, HOLDLOCK)",
                     conexion, tx);
                 nv.Numero = Convert.ToInt32(cmdNum.ExecuteScalar());
 
@@ -180,7 +180,7 @@ namespace ClaumanAPI.Controllers
                         (Numero, Fecha, Hora, ClienteId, ClienteRef, CondVenta, MedioPago,
                          DescGlobal, TotalNeto, Iva, Total, Estado, Usuario, Bodega)
                     VALUES
-                        (@Numero, GETDATE(), CURRENT_TIME, @ClienteId, @ClienteRef, @CondVenta, @MedioPago,
+                        (@Numero, GETDATE(), CAST(GETDATE() AS TIME), @ClienteId, @ClienteRef, @CondVenta, @MedioPago,
                          @DescGlobal, @TotalNeto, @Iva, @Total, 'VIGENTE', @Usuario, @Bodega)
                     ;
                     SELECT CAST(SCOPE_IDENTITY() AS INT);", conexion, tx);
