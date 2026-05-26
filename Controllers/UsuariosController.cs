@@ -1,9 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Data.SqlClient;
-using System.Security.Cryptography;
-using System.Text;
 using ClaumanAPI.Models;
 using ClaumanAPI.Middleware;
+using ClaumanAPI.Security;
 
 namespace ClaumanAPI.Controllers
 {
@@ -75,7 +74,7 @@ namespace ClaumanAPI.Controllers
                 cmd.Parameters.AddWithValue("@Rut",      (object?)req.Rut ?? DBNull.Value);
                 cmd.Parameters.AddWithValue("@Nombre",   req.Nombre);
                 cmd.Parameters.AddWithValue("@Username", req.Username);
-                cmd.Parameters.AddWithValue("@Hash",     HashSha256(req.Password));
+                cmd.Parameters.AddWithValue("@Hash",     PasswordHasher.Hash(req.Password));
                 cmd.Parameters.AddWithValue("@Rol",      req.Rol);
                 cmd.Parameters.AddWithValue("@Permisos", (object?)req.Permisos ?? DBNull.Value);
 
@@ -167,13 +166,5 @@ namespace ClaumanAPI.Controllers
             return Ok(lista);
         }
 
-        private static string HashSha256(string texto)
-        {
-            using var sha = SHA256.Create();
-            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(texto));
-            var sb = new StringBuilder();
-            foreach (var b in bytes) sb.Append(b.ToString("x2"));
-            return sb.ToString();
-        }
     }
 }

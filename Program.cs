@@ -1,9 +1,36 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
+
+// =============================================================
+// Rate-limiting — defensa contra brute-force en /api/auth/login.
+// Política "login": máximo 10 intentos por IP cada 60 segundos.
+// Si se excede, devolvemos 429 Too Many Requests.
+//
+// Por qué fixed window: simple, suficiente para login. Si quisieras algo
+// más sofisticado (sliding window, token bucket) está disponible en la
+// misma API de Microsoft.AspNetCore.RateLimiting.
+// =============================================================
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("login", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ctx.Connection.RemoteIpAddress?.ToString() ?? "anon",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit       = 10,
+                Window            = TimeSpan.FromMinutes(1),
+                QueueLimit        = 0,
+                AutoReplenishment = true,
+            }));
+});
 
 // =============================================================
 // CORS — en desarrollo permite localhost:5173; en producción usa
@@ -56,6 +83,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors("ClaumanCors");
+app.UseRateLimiter();   // antes del middleware de auth para que el 429 dispare ya
 app.UseMiddleware<ClaumanAPI.Middleware.AuthMiddleware>();
 app.UseAuthorization();
 app.MapControllers();

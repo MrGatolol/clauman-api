@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Data.SqlClient;
-using System.Security.Cryptography;
-using System.Text;
 using ClaumanAPI.Models;
+using ClaumanAPI.Security;
 
 namespace ClaumanAPI.Controllers
 {
@@ -18,7 +18,9 @@ namespace ClaumanAPI.Controllers
         }
 
         // POST /api/auth/login  body: { username, password }
+        // Limitado a 10 intentos por minuto por IP (ver Program.cs).
         [HttpPost("login")]
+        [EnableRateLimiting("login")]
         public IActionResult Login([FromBody] LoginRequest req)
         {
             if (string.IsNullOrWhiteSpace(req.Username) || string.IsNullOrWhiteSpace(req.Password))
@@ -56,9 +58,11 @@ namespace ClaumanAPI.Controllers
                 }
             }
 
-            // Hashear el password recibido y comparar (timing-safe)
-            string hashEntrada = HashSha256(req.Password);
-            bool credencialesOk = encontrado && activo && TimingSafeEquals(hashBd, hashEntrada);
+            // Verificación con PasswordHasher: acepta BCrypt y SHA256 legacy.
+            // Si era SHA256 y verificó OK, marcamos needsRehash para migrar a BCrypt.
+            bool needsRehash = false;
+            bool credencialesOk = encontrado && activo
+                                  && PasswordHasher.Verify(req.Password, hashBd, out needsRehash);
 
             // Registrar en bitácora SIEMPRE (exitoso o no)
             var cmdLog = new SqlCommand(@"
@@ -71,6 +75,17 @@ namespace ClaumanAPI.Controllers
 
             if (!credencialesOk)
                 return Unauthorized(new { mensaje = "Usuario o contraseña incorrectos." });
+
+            // Migración transparente SHA256 → BCrypt: si el hash era legacy,
+            // re-hasheamos con BCrypt y guardamos. El usuario nunca se entera.
+            if (needsRehash)
+            {
+                var cmdRehash = new SqlCommand(
+                    "UPDATE Usuarios SET PasswordHash = @H WHERE Id = @Id", conexion);
+                cmdRehash.Parameters.AddWithValue("@H",  PasswordHasher.Hash(req.Password));
+                cmdRehash.Parameters.AddWithValue("@Id", id);
+                cmdRehash.ExecuteNonQuery();
+            }
 
             // Generamos el token y lo persistimos en SesionTokens con expiración de 8 horas.
             // Cada request siguiente debe traer este token en el header Authorization, y
@@ -112,23 +127,29 @@ namespace ClaumanAPI.Controllers
             return NoContent();
         }
 
-        // POST /api/auth/cambiar-password  body: { username, passwordActual, passwordNueva }
+        // POST /api/auth/cambiar-password  body: { passwordActual, passwordNueva }
+        // El usuario se identifica via el token (HttpContext.Items["UsuarioId"]).
+        // Ya no se acepta `username` en el body — eso permitía que un usuario
+        // intentara cambiar la pass de otro adivinando la pass actual.
         [HttpPost("cambiar-password")]
         public IActionResult CambiarPassword([FromBody] Dictionary<string, string> body)
         {
-            if (!body.TryGetValue("username", out var username) ||
-                !body.TryGetValue("passwordActual", out var actual) ||
+            if (!body.TryGetValue("passwordActual", out var actual) ||
                 !body.TryGetValue("passwordNueva", out var nueva))
-                return BadRequest(new { mensaje = "Faltan campos requeridos." });
+                return BadRequest(new { mensaje = "Faltan campos requeridos (passwordActual, passwordNueva)." });
+
+            // El AuthMiddleware ya validó el token y dejó UsuarioId en HttpContext.Items
+            if (!HttpContext.Items.TryGetValue("UsuarioId", out var idObj) || idObj is not int usuarioId)
+                return Unauthorized(new { mensaje = "Sesión no válida." });
 
             using var conexion = new SqlConnection(_conexion);
             conexion.Open();
 
-            var cmd = new SqlCommand("SELECT PasswordHash FROM Usuarios WHERE Username = @U", conexion);
-            cmd.Parameters.AddWithValue("@U", username);
+            var cmd = new SqlCommand("SELECT PasswordHash FROM Usuarios WHERE Id = @Id", conexion);
+            cmd.Parameters.AddWithValue("@Id", usuarioId);
             var hashActual = cmd.ExecuteScalar() as string;
 
-            if (hashActual == null || !TimingSafeEquals(hashActual, HashSha256(actual)))
+            if (hashActual == null || !PasswordHasher.Verify(actual, hashActual, out _))
                 return Unauthorized(new { mensaje = "Contraseña actual incorrecta." });
 
             if (nueva.Length < 6)
@@ -136,40 +157,20 @@ namespace ClaumanAPI.Controllers
             if (nueva == actual)
                 return BadRequest(new { mensaje = "La nueva contraseña debe ser distinta de la actual." });
 
-            // Actualizar password + invalidar TODOS los tokens del usuario
+            // Actualizar password (con BCrypt) + invalidar TODOS los tokens del usuario
             // (si alguien tenía la contraseña vieja con un token abierto, queda fuera)
             var cmdUpd = new SqlCommand(
-                "UPDATE Usuarios SET PasswordHash = @H WHERE Username = @U", conexion);
-            cmdUpd.Parameters.AddWithValue("@H", HashSha256(nueva));
-            cmdUpd.Parameters.AddWithValue("@U", username);
+                "UPDATE Usuarios SET PasswordHash = @H WHERE Id = @Id", conexion);
+            cmdUpd.Parameters.AddWithValue("@H",  PasswordHasher.Hash(nueva));
+            cmdUpd.Parameters.AddWithValue("@Id", usuarioId);
             cmdUpd.ExecuteNonQuery();
 
-            var cmdDelTokens = new SqlCommand(@"
-                DELETE FROM SesionTokens
-                WHERE UsuarioId IN (SELECT Id FROM Usuarios WHERE Username = @U)", conexion);
-            cmdDelTokens.Parameters.AddWithValue("@U", username);
+            var cmdDelTokens = new SqlCommand(
+                "DELETE FROM SesionTokens WHERE UsuarioId = @Id", conexion);
+            cmdDelTokens.Parameters.AddWithValue("@Id", usuarioId);
             cmdDelTokens.ExecuteNonQuery();
 
             return NoContent();
-        }
-
-        // ---- Helpers ----
-        private static string HashSha256(string texto)
-        {
-            using var sha = SHA256.Create();
-            var bytes = sha.ComputeHash(Encoding.UTF8.GetBytes(texto));
-            var sb = new StringBuilder();
-            foreach (var b in bytes) sb.Append(b.ToString("x2"));
-            return sb.ToString();
-        }
-
-        // Comparación constante para evitar timing attacks
-        private static bool TimingSafeEquals(string a, string b)
-        {
-            if (a.Length != b.Length) return false;
-            int diff = 0;
-            for (int i = 0; i < a.Length; i++) diff |= a[i] ^ b[i];
-            return diff == 0;
         }
     }
 }
