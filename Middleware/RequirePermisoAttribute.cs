@@ -80,9 +80,11 @@ namespace ClaumanAPI.Middleware
                 return;
             }
 
-            // Resolver connection string desde DI
+            // Resolver connection string desde DI.
+            // await using garantiza que la conexión se libere aunque algo lance
+            // entre Open y el final (antes con CloseAsync manual había leak potencial).
             var config = ctx.HttpContext.RequestServices.GetRequiredService<IConfiguration>();
-            var conexion = new SqlConnection(config.GetConnectionString("ClaumanDB")!);
+            await using var conexion = new SqlConnection(config.GetConnectionString("ClaumanDB")!);
             await conexion.OpenAsync();
 
             // Leer rol + permisos
@@ -102,7 +104,6 @@ namespace ClaumanAPI.Middleware
                 rol = rd.GetString(0);
                 permisosJson = rd.GetString(1);
             }
-            await conexion.CloseAsync();
 
             // ADMIN tiene acceso total — sin chequear matriz
             if (rol.Equals("ADMIN", StringComparison.OrdinalIgnoreCase))
